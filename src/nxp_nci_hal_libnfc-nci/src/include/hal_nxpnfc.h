@@ -18,6 +18,7 @@
 #if(NXP_EXTNS == TRUE)
 #ifndef ANDROID_HARDWARE_HAL_NXPNFC_V1_0_H
 #define ANDROID_HARDWARE_HAL_NXPNFC_V1_0_H
+#include <cstdint>
 #include <vector>
 #include <string>
 
