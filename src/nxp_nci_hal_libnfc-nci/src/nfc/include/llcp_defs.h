@@ -24,6 +24,8 @@
 #ifndef LLCP_DEFS_H
 #define LLCP_DEFS_H
 
+#include <cstdint>
+
 /*
 ** LLCP PDU Descriptions
 */

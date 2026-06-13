@@ -19,6 +19,7 @@
 #ifndef LINUX_MACRO_H
 #define LINUX_MACRO_H
 
+#include <cstdint>
 #include <fcntl.h>
 #include <sys/stat.h> //S_ISREG
 #include <vector>

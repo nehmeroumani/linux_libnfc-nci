@@ -24,6 +24,8 @@
 #ifndef NFC_HAL_INT_API_H
 #define NFC_HAL_INT_API_H
 
+#include <cstdint>
+
 /****************************************************************************
 ** Device Configuration definitions
 ****************************************************************************/

@@ -17,6 +17,8 @@
 #ifndef _PHNXPNCIHAL_ADAPTATION_H_
 #define _PHNXPNCIHAL_ADAPTATION_H_
 
+#include <cstdint>
+
 //#include <hardware/nfc.h>
 //#include <android/hardware/nfc/1.2/INfc.h>
 //#include <android/hardware/nfc/1.2/types.h>

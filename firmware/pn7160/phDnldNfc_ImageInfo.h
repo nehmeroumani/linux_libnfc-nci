@@ -13,6 +13,8 @@
 #ifndef PHDNLDNFC_IMAGEINFO_H /* */
 #define PHDNLDNFC_IMAGEINFO_H/* */
 
+#include <cstdint>
+
 #define ANDROID
 #ifndef ANDROID
 #define DECLDIR __declspec(dllexport)

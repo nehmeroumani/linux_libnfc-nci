@@ -24,6 +24,8 @@
 #ifndef NFC_HAL_POST_RESET_H
 #define NFC_HAL_POST_RESET_H
 
+#include <cstdint>
+
 /*****************************************************************************
 ** Application control block definitions
 ******************************************************************************/

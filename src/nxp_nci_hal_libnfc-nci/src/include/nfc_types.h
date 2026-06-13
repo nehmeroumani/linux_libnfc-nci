@@ -19,6 +19,8 @@
 #ifndef NFC_TYPES_H
 #define NFC_TYPES_H
 
+#include <cstdint>
+
 /****************************************************************************
 ** NFC_HDR header definition for NFC messages
 *****************************************************************************/

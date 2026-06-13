@@ -26,6 +26,8 @@
 #ifndef TAGS_DEFS_H
 #define TAGS_DEFS_H
 
+#include <cstdint>
+
 /* Manufacturer ID */
 /* BROADCOM CORPORATION                           */
 #define TAG_BRCM_MID 0x2E

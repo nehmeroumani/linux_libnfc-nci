@@ -19,6 +19,7 @@
 #ifndef ANDROID_HARDWARE_NFC_V1_2_NFC_H
 #define ANDROID_HARDWARE_NFC_V1_2_NFC_H
 
+#include <cstdint>
 #include <android/hardware/nfc/1.2/INfc.h>
 #include <android/hardware/nfc/1.2/types.h>
 #include <hidl/MQDescriptor.h>

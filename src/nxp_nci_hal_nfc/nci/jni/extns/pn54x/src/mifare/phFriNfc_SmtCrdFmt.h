@@ -21,6 +21,7 @@
 #ifndef PHFRINFC_SMTCRDFMT_H
 #define PHFRINFC_SMTCRDFMT_H
 
+#include <cstdint>
 #include <phNfcTypes_Mapping.h>
 
 /********************* Definitions and structures *****************************/
