@@ -867,6 +867,9 @@ extern "C" int GetStrValue(const char* name, char* pValue, unsigned long l)
 
     switch (len)
     {
+    case sizeof(unsigned int):
+        *(static_cast<unsigned int*>(pValue)) = (unsigned int)v;
+        break;
     case sizeof(unsigned long):
         *(static_cast<unsigned long*>(pValue)) = (unsigned long)v;
         break;
