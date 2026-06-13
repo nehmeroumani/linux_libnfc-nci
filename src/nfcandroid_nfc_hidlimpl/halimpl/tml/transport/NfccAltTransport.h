@@ -22,12 +22,22 @@
 #include <linux/i2c.h>
 #include <poll.h>
 
+#ifdef USE_LIBGPIOD
+#include <gpiod.h>
+#endif
+
 #define I2C_ADDRESS 0x28
 #define I2C_BUS "/dev/i2c-1"
 #define SPI_BUS "/dev/spidev0.0"
 #define PIN_INT 23
 #define PIN_ENABLE 24
 #define PIN_FWDNLD 25
+
+#ifdef USE_LIBGPIOD
+#define GPIO_CHIP_NAME "gpiochip0"
+#define GPIO_CONSUMER_NAME "nfc-pn7160"
+#endif
+
 #define EDGE_NONE 0
 #define EDGE_RISING 1
 #define EDGE_FALLING 2
@@ -45,9 +55,26 @@ class NfccAltTransport : public NfccTransport {
   NfccAltTransport();
   bool_t bFwDnldFlag = false;
   sem_t mTxRxSemaphore;
+#ifdef USE_LIBGPIOD
+  struct gpiod_chip *gpio_chip;
+#if defined(GPIOD_VERSION_MAJOR) && (GPIOD_VERSION_MAJOR >= 2)
+  struct gpiod_line_request *line_req_ven;
+  struct gpiod_line_request *line_req_fwdnld;
+  struct gpiod_line_request *line_req_irq;
+  struct gpiod_edge_event_buffer *event_buffer;
+#else
+  struct gpiod_line *line_ven;
+  struct gpiod_line *line_fwdnld;
+  struct gpiod_line *line_irq;
+#endif
+#else
   int iEnableFd;
   int iInterruptFd;
   int iFwDnldFd;
+#endif
+
+ public:
+  ~NfccAltTransport();
 
  public:
   void gpio_set_ven(int value);
@@ -56,6 +83,10 @@ class NfccAltTransport : public NfccTransport {
   void wait4interrupt(void);
   int SemTimedWait();
   void SemPost();
+#ifdef USE_LIBGPIOD
+  int InitGpioLines();
+  void ReleaseGpioLines();
+#endif
   int Flushdata(void* pDevHandle, uint8_t* pBuffer, int numRead);
   /*****************************************************************************
    **

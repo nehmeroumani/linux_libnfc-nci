@@ -30,6 +30,11 @@ AM_CPPFLAGS += \
 AM_LDFLAGS += -L$(openssldir)/lib -lcrypto -lssl
 endif
 
+if USE_LIBGPIOD
+AM_CPPFLAGS += -DUSE_LIBGPIOD $(GPIOD_CFLAGS)
+AM_LDFLAGS += $(GPIOD_LIBS)
+endif
+
 lib_LTLIBRARIES += libpn7160_fw.la
 
 libpn7160_fw_la_SOURCES = \
@@ -266,7 +271,7 @@ endif
 libnfc_nci_linux_la_FLAGS += -DPH_NCI_NXP_HAL_ENABLE_FW_DOWNLOAD=FALSE
 libnfc_nci_linux_la_FLAGS += -DNXP_NEW_MW_API_COMPATIBILITY
 
-libnfc_nci_linux_la_LIBADD = $(AC_LIBOBJS)
+libnfc_nci_linux_la_LIBADD = $(AC_LIBOBJS) $(GPIOD_LIBS)
 libnfc_nci_linux_la_LDFLAGS := $(AM_LDFLAGS)
 libnfc_nci_linux_la_LDFLAGS += -shared -pthread -ldl -lrt -fPIC -release 1 -version-info 0:0:0
 

@@ -15,6 +15,8 @@
  */
 #ifndef ANDROID_BASE_STRINGS_H
 #define ANDROID_BASE_STRINGS_H
+
+#include <cstdint>
 #include <sstream>
 #include <string>
 #include <vector>

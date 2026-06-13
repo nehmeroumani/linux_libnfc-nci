@@ -1233,7 +1233,7 @@ static jbyteArray nativeNfcTag_doTransceive(JNIEnv* e, jobject o,
     DLOG_IF(INFO, nfc_debug_enabled)
         << StringPrintf("%s: tag not active", __func__);
     gSyncMutex.unlock();
-    return NULL;
+    return -1;
   }
 
   NfcTag& natTag = NfcTag::getInstance();

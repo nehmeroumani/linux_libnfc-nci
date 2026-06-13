@@ -150,7 +150,7 @@ static int SpiRead(int pDevHandle, uint8_t* pBuffer, int nBytesToRead) {
   char buf = WRITE_PREFIX_ON_READ;
   memset(spi, 0x0, sizeof(spi));
   NXPLOG_TML_D("nBytesToRead=%d pBuffer=%p\n", nBytesToRead, pBuffer);
-  spi[0].rx_buf = NULL;                 // receive into "data"
+  spi[0].rx_buf = 0;                 // receive into "data"
   spi[0].tx_buf = (unsigned long)&buf;  // transmit from "data"
   spi[0].len = PREFIX_LENGTH;
   spi[0].delay_usecs = 0;
@@ -160,7 +160,7 @@ static int SpiRead(int pDevHandle, uint8_t* pBuffer, int nBytesToRead) {
   spi[0].tx_nbits = 0;
   spi[0].rx_nbits = 0;
 
-  spi[1].tx_buf = NULL;                    // transmit from "data"
+  spi[1].tx_buf = 0;                    // transmit from "data"
   spi[1].rx_buf = (unsigned long)pBuffer;  // receive into "data"
   spi[1].len = nBytesToRead;
   spi[1].delay_usecs = 0;
@@ -393,9 +393,11 @@ void NfccAltSpiTransport::Close(void* pDevHandle) {
   if (NULL != pDevHandle) {
     close((intptr_t)pDevHandle);
   }
+#ifndef USE_LIBGPIOD
   if (iEnableFd) close(iEnableFd);
   if (iInterruptFd) close(iInterruptFd);
   if (iFwDnldFd) close(iFwDnldFd);
+#endif
   NXPLOG_TML_D("%s exit", __func__);
   return;
 }

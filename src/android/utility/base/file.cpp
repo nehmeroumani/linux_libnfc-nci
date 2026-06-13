@@ -157,7 +157,7 @@ static ssize_t pread(int fd, void* data, size_t byte_count, off64_t offset) {
   return static_cast<ssize_t>(bytes_read);
 }
 #endif
-bool ReadFullyAtOffset(int fd, void* data, size_t byte_count, off64_t offset) {
+bool ReadFullyAtOffset(int fd, void* data, size_t byte_count, off_t offset) {
   uint8_t* p = reinterpret_cast<uint8_t*>(data);
   while (byte_count > 0) {
     ssize_t n = TEMP_FAILURE_RETRY(pread(fd, p, byte_count, offset));

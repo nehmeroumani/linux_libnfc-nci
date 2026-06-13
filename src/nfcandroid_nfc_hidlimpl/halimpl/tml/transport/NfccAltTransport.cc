@@ -20,6 +20,12 @@
 #ifdef ANDROID
 #include <hardware/nfc.h>
 #endif
+
+#ifdef USE_LIBGPIOD
+#include <gpiod.h>
+#include <time.h>
+#endif
+
 #include <stdlib.h>
 #include <sys/ioctl.h>
 #include <sys/select.h>
@@ -42,9 +48,221 @@ extern phTmlNfc_i2cfragmentation_t fragmentation_enabled;
 extern phTmlNfc_Context_t* gpphTmlNfc_Context;
 
 NfccAltTransport::NfccAltTransport() {
+#ifdef USE_LIBGPIOD
+  gpio_chip = nullptr;
+#if defined(GPIOD_VERSION_MAJOR) && (GPIOD_VERSION_MAJOR >= 2)
+  line_req_ven = nullptr;
+  line_req_fwdnld = nullptr;
+  line_req_irq = nullptr;
+  event_buffer = nullptr;
+#else
+  line_ven = nullptr;
+  line_fwdnld = nullptr;
+  line_irq = nullptr;
+#endif
+#else
   iEnableFd = 0;
   iInterruptFd = 0;
+  iFwDnldFd = 0;
+#endif
 }
+
+NfccAltTransport::~NfccAltTransport() {
+#ifdef USE_LIBGPIOD
+  ReleaseGpioLines();
+#else
+  if (iEnableFd > 0) close(iEnableFd);
+  if (iInterruptFd > 0) close(iInterruptFd);
+  if (iFwDnldFd > 0) close(iFwDnldFd);
+#endif
+}
+
+#ifdef USE_LIBGPIOD
+int NfccAltTransport::InitGpioLines() {
+  NXPLOG_TML_D("%s Enter", __func__);
+  char chip_path[64];
+
+  snprintf(chip_path, sizeof(chip_path), "/dev/%s", GPIO_CHIP_NAME);
+  gpio_chip = gpiod_chip_open(chip_path);
+  if (!gpio_chip) {
+    NXPLOG_TML_E("%s: Failed to open GPIO chip %s (%s)", __func__, GPIO_CHIP_NAME,
+                 strerror(errno));
+    return -1;
+  }
+
+#if defined(GPIOD_VERSION_MAJOR) && (GPIOD_VERSION_MAJOR >= 2)
+  struct gpiod_line_settings *settings = nullptr;
+  struct gpiod_line_config *line_cfg = nullptr;
+  struct gpiod_request_config *req_cfg = nullptr;
+  const unsigned int ven_offset[] = {PIN_ENABLE};
+  const unsigned int fwdnld_offset[] = {PIN_FWDNLD};
+  const unsigned int irq_offset[] = {PIN_INT};
+
+  req_cfg = gpiod_request_config_new();
+  if (!req_cfg) {
+    NXPLOG_TML_E("%s: Failed to create request config", __func__);
+    goto error;
+  }
+  gpiod_request_config_set_consumer(req_cfg, GPIO_CONSUMER_NAME);
+
+  settings = gpiod_line_settings_new();
+  if (!settings) goto error;
+  gpiod_line_settings_set_direction(settings, GPIOD_LINE_DIRECTION_OUTPUT);
+  gpiod_line_settings_set_output_value(settings, GPIOD_LINE_VALUE_INACTIVE);
+
+  line_cfg = gpiod_line_config_new();
+  if (!line_cfg) goto error;
+  gpiod_line_config_add_line_settings(line_cfg, ven_offset, 1, settings);
+
+  line_req_ven = gpiod_chip_request_lines(gpio_chip, req_cfg, line_cfg);
+  if (!line_req_ven) {
+    NXPLOG_TML_E("%s: Failed to request VEN line (pin %d): %s", __func__, PIN_ENABLE,
+                 strerror(errno));
+    goto error;
+  }
+  NXPLOG_TML_D("%s: VEN line (pin %d) configured as output", __func__, PIN_ENABLE);
+  gpiod_line_config_free(line_cfg);
+  line_cfg = nullptr;
+
+  line_cfg = gpiod_line_config_new();
+  if (!line_cfg) goto error;
+  gpiod_line_config_add_line_settings(line_cfg, fwdnld_offset, 1, settings);
+
+  line_req_fwdnld = gpiod_chip_request_lines(gpio_chip, req_cfg, line_cfg);
+  if (!line_req_fwdnld) {
+    NXPLOG_TML_E("%s: Failed to request FWDNLD line (pin %d): %s", __func__, PIN_FWDNLD,
+                 strerror(errno));
+    goto error;
+  }
+  NXPLOG_TML_D("%s: FWDNLD line (pin %d) configured as output", __func__, PIN_FWDNLD);
+  gpiod_line_config_free(line_cfg);
+  gpiod_line_settings_free(settings);
+  line_cfg = nullptr;
+  settings = nullptr;
+
+  settings = gpiod_line_settings_new();
+  if (!settings) goto error;
+  gpiod_line_settings_set_direction(settings, GPIOD_LINE_DIRECTION_INPUT);
+  gpiod_line_settings_set_edge_detection(settings, GPIOD_LINE_EDGE_RISING);
+
+  line_cfg = gpiod_line_config_new();
+  if (!line_cfg) goto error;
+  gpiod_line_config_add_line_settings(line_cfg, irq_offset, 1, settings);
+
+  line_req_irq = gpiod_chip_request_lines(gpio_chip, req_cfg, line_cfg);
+  if (!line_req_irq) {
+    NXPLOG_TML_E("%s: Failed to request IRQ line (pin %d): %s", __func__, PIN_INT,
+                 strerror(errno));
+    goto error;
+  }
+  NXPLOG_TML_D("%s: IRQ line (pin %d) configured for rising edge", __func__, PIN_INT);
+
+  event_buffer = gpiod_edge_event_buffer_new(1);
+  if (!event_buffer) {
+    NXPLOG_TML_E("%s: Failed to create event buffer", __func__);
+    goto error;
+  }
+
+  gpiod_line_config_free(line_cfg);
+  gpiod_line_settings_free(settings);
+  gpiod_request_config_free(req_cfg);
+#else
+  line_ven = gpiod_chip_get_line(gpio_chip, PIN_ENABLE);
+  if (!line_ven) {
+    NXPLOG_TML_E("%s: Failed to get VEN line (pin %d)", __func__, PIN_ENABLE);
+    goto error;
+  }
+  if (gpiod_line_request_output(line_ven, GPIO_CONSUMER_NAME, 0) < 0) {
+    NXPLOG_TML_E("%s: Failed to request VEN line (pin %d): %s", __func__, PIN_ENABLE,
+                 strerror(errno));
+    goto error;
+  }
+  NXPLOG_TML_D("%s: VEN line (pin %d) configured as output", __func__, PIN_ENABLE);
+
+  line_fwdnld = gpiod_chip_get_line(gpio_chip, PIN_FWDNLD);
+  if (!line_fwdnld) {
+    NXPLOG_TML_E("%s: Failed to get FWDNLD line (pin %d)", __func__, PIN_FWDNLD);
+    goto error;
+  }
+  if (gpiod_line_request_output(line_fwdnld, GPIO_CONSUMER_NAME, 0) < 0) {
+    NXPLOG_TML_E("%s: Failed to request FWDNLD line (pin %d): %s", __func__, PIN_FWDNLD,
+                 strerror(errno));
+    goto error;
+  }
+  NXPLOG_TML_D("%s: FWDNLD line (pin %d) configured as output", __func__, PIN_FWDNLD);
+
+  line_irq = gpiod_chip_get_line(gpio_chip, PIN_INT);
+  if (!line_irq) {
+    NXPLOG_TML_E("%s: Failed to get IRQ line (pin %d)", __func__, PIN_INT);
+    goto error;
+  }
+  if (gpiod_line_request_rising_edge_events(line_irq, GPIO_CONSUMER_NAME) < 0) {
+    NXPLOG_TML_E("%s: Failed to request IRQ line (pin %d): %s", __func__, PIN_INT,
+                 strerror(errno));
+    goto error;
+  }
+  NXPLOG_TML_D("%s: IRQ line (pin %d) configured for rising edge", __func__, PIN_INT);
+#endif
+
+  NXPLOG_TML_D("%s: GPIO lines initialized successfully", __func__);
+  return 0;
+
+#if defined(GPIOD_VERSION_MAJOR) && (GPIOD_VERSION_MAJOR >= 2)
+error:
+  if (line_cfg) gpiod_line_config_free(line_cfg);
+  if (settings) gpiod_line_settings_free(settings);
+  if (req_cfg) gpiod_request_config_free(req_cfg);
+  ReleaseGpioLines();
+  return -1;
+#else
+error:
+  ReleaseGpioLines();
+  return -1;
+#endif
+}
+
+void NfccAltTransport::ReleaseGpioLines() {
+  NXPLOG_TML_D("%s Enter", __func__);
+
+#if defined(GPIOD_VERSION_MAJOR) && (GPIOD_VERSION_MAJOR >= 2)
+  if (event_buffer) {
+    gpiod_edge_event_buffer_free(event_buffer);
+    event_buffer = nullptr;
+  }
+  if (line_req_ven) {
+    gpiod_line_request_release(line_req_ven);
+    line_req_ven = nullptr;
+  }
+  if (line_req_fwdnld) {
+    gpiod_line_request_release(line_req_fwdnld);
+    line_req_fwdnld = nullptr;
+  }
+  if (line_req_irq) {
+    gpiod_line_request_release(line_req_irq);
+    line_req_irq = nullptr;
+  }
+#else
+  if (line_ven) {
+    gpiod_line_release(line_ven);
+    line_ven = nullptr;
+  }
+  if (line_fwdnld) {
+    gpiod_line_release(line_fwdnld);
+    line_fwdnld = nullptr;
+  }
+  if (line_irq) {
+    gpiod_line_release(line_irq);
+    line_irq = nullptr;
+  }
+#endif
+  if (gpio_chip) {
+    gpiod_chip_close(gpio_chip);
+    gpio_chip = nullptr;
+  }
+
+  NXPLOG_TML_D("%s: GPIO resources released", __func__);
+}
+#endif /* USE_LIBGPIOD */
 
 /*******************************************************************************
 **
@@ -249,8 +467,37 @@ int NfccAltTransport::SemTimedWait() {
 *******************************************************************************/
 int NfccAltTransport::GetIrqState(void* pDevHandle) {
   int ret = -1;
+  (void)pDevHandle;
 
   NXPLOG_TML_D("%s Enter", __func__);
+
+#ifdef USE_LIBGPIOD
+#if defined(GPIOD_VERSION_MAJOR) && (GPIOD_VERSION_MAJOR >= 2)
+  if (!line_req_irq) {
+    NXPLOG_TML_E("%s: IRQ line not initialized", __func__);
+    return -1;
+  }
+
+  enum gpiod_line_value value = gpiod_line_request_get_value(line_req_irq, PIN_INT);
+  ret = (value == GPIOD_LINE_VALUE_ACTIVE) ? 1 : 0;
+#else
+  if (!line_irq) {
+    NXPLOG_TML_E("%s: IRQ line not initialized", __func__);
+    return -1;
+  }
+
+  int value = gpiod_line_get_value(line_irq);
+  if (value < 0) {
+    NXPLOG_TML_E("%s: Failed to read IRQ line (%s)", __func__, strerror(errno));
+    return -1;
+  }
+  ret = value ? 1 : 0;
+#endif
+
+  NXPLOG_TML_D("%s exit: state = %d", __func__, ret);
+  return ret;
+#else /* sysfs implementation */
+
   int len;
   char buf[2];
 
@@ -259,10 +506,8 @@ int NfccAltTransport::GetIrqState(void* pDevHandle) {
     return (-1);
   }
 
-  // Seek to the start of the file
   lseek(iInterruptFd, SEEK_SET, 0);
 
-  // Read the field_detect line
   len = read(iInterruptFd, buf, 2);
 
   if (len != 2) {
@@ -272,18 +517,18 @@ int NfccAltTransport::GetIrqState(void* pDevHandle) {
 
   NXPLOG_TML_D("%s exit: state = %d", __func__, (buf[0] != '0'));
   return (buf[0] != '0');
+#endif /* USE_LIBGPIOD */
 }
 
+#ifndef USE_LIBGPIOD
 int NfccAltTransport::verifyPin(int pin, int isoutput, int edge) {
   char buf[40];
-  // Check if gpio pin has already been created
   int hasGpio = 0;
   NXPLOG_TML_D("%s Enter", __func__);
   sprintf(buf, "/sys/class/gpio/gpio%d", pin);
   NXPLOG_TML_D("Pin %s\n", buf);
   int fd = open(buf, O_RDONLY);
   if (fd <= 0) {
-    // Pin not exported yet
     NXPLOG_TML_D("Create pin %s\n", buf);
     if ((fd = open("/sys/class/gpio/export", O_WRONLY)) > 0) {
       sprintf(buf, "%d", pin);
@@ -302,7 +547,6 @@ int NfccAltTransport::verifyPin(int pin, int isoutput, int edge) {
   close(fd);
 
   if (hasGpio) {
-    // Make sure it is an output
     sprintf(buf, "/sys/class/gpio/gpio%d/direction", pin);
     NXPLOG_TML_D("Direction %s\n", buf);
     fd = open(buf, O_WRONLY);
@@ -317,14 +561,12 @@ int NfccAltTransport::verifyPin(int pin, int isoutput, int edge) {
         }
         close(fd);
 
-        // Open pin and make sure it is off
         sprintf(buf, "/sys/class/gpio/gpio%d/value", pin);
         fd = open(buf, O_RDWR);
         if (fd <= 0) {
         }
         close(fd);
 
-        // Open pin and make sure it is off
         sprintf(buf, "/sys/class/gpio/gpio%d/value", pin);
         fd = open(buf, O_RDWR);
         if (fd <= 0) {
@@ -335,7 +577,7 @@ int NfccAltTransport::verifyPin(int pin, int isoutput, int edge) {
           if (write(fd, "0", 1) == 1) {
             NXPLOG_TML_D("Pin %d now off\n", pin);
           }
-          return (fd);  // Success
+          return (fd);
         }
       } else {
         if (write(fd, "in", 2) == 2) {
@@ -344,7 +586,6 @@ int NfccAltTransport::verifyPin(int pin, int isoutput, int edge) {
         close(fd);
 
         if (edge != EDGE_NONE) {
-          // Open pin edge control
           sprintf(buf, "/sys/class/gpio/gpio%d/edge", pin);
           NXPLOG_TML_D("Edge %s\n", buf);
           fd = open(buf, O_RDWR);
@@ -374,7 +615,6 @@ int NfccAltTransport::verifyPin(int pin, int isoutput, int edge) {
           }
         }
 
-        // Open pin
         sprintf(buf, "/sys/class/gpio/gpio%d/value", pin);
         NXPLOG_TML_D("Value %s\n", buf);
         fd = open(buf, O_RDONLY);
@@ -383,14 +623,32 @@ int NfccAltTransport::verifyPin(int pin, int isoutput, int edge) {
                        strerror(errno));
           return -1;
         } else {
-          return (fd);  // Success
+          return (fd);
         }
       }
     }
   }
   return (0);
 }
+#endif /* !USE_LIBGPIOD */
+
 void NfccAltTransport::gpio_set_ven(int value) {
+#ifdef USE_LIBGPIOD
+#if defined(GPIOD_VERSION_MAJOR) && (GPIOD_VERSION_MAJOR >= 2)
+  if (line_req_ven) {
+    enum gpiod_line_value val = value ? GPIOD_LINE_VALUE_ACTIVE : GPIOD_LINE_VALUE_INACTIVE;
+    gpiod_line_request_set_value(line_req_ven, PIN_ENABLE, val);
+    NXPLOG_TML_D("%s: VEN set to %d", __func__, value);
+    usleep(10 * 1000);
+  }
+#else
+  if (line_ven) {
+    gpiod_line_set_value(line_ven, value ? 1 : 0);
+    NXPLOG_TML_D("%s: VEN set to %d", __func__, value);
+    usleep(10 * 1000);
+  }
+#endif
+#else
   if (iEnableFd > 0) {
     if (value == 0) {
       write(iEnableFd, "0", 1);
@@ -399,9 +657,26 @@ void NfccAltTransport::gpio_set_ven(int value) {
     }
     usleep(10 * 1000);
   }
+#endif /* USE_LIBGPIOD */
 }
 
 void NfccAltTransport::gpio_set_fwdl(int value) {
+#ifdef USE_LIBGPIOD
+#if defined(GPIOD_VERSION_MAJOR) && (GPIOD_VERSION_MAJOR >= 2)
+  if (line_req_fwdnld) {
+    enum gpiod_line_value val = value ? GPIOD_LINE_VALUE_ACTIVE : GPIOD_LINE_VALUE_INACTIVE;
+    gpiod_line_request_set_value(line_req_fwdnld, PIN_FWDNLD, val);
+    NXPLOG_TML_D("%s: FWDNLD set to %d", __func__, value);
+    usleep(10 * 1000);
+  }
+#else
+  if (line_fwdnld) {
+    gpiod_line_set_value(line_fwdnld, value ? 1 : 0);
+    NXPLOG_TML_D("%s: FWDNLD set to %d", __func__, value);
+    usleep(10 * 1000);
+  }
+#endif
+#else
   if (iFwDnldFd > 0) {
     if (value == 0) {
       write(iFwDnldFd, "0", 1);
@@ -410,43 +685,88 @@ void NfccAltTransport::gpio_set_fwdl(int value) {
     }
     usleep(10 * 1000);
   }
+#endif /* USE_LIBGPIOD */
 }
 
 void NfccAltTransport::wait4interrupt(void) {
-  /* Open STREAMS device. */
+#ifdef USE_LIBGPIOD
+#if defined(GPIOD_VERSION_MAJOR) && (GPIOD_VERSION_MAJOR >= 2)
+  NXPLOG_TML_D("%s Enter (libgpiod v2)", __func__);
+
+  if (!line_req_irq) {
+    NXPLOG_TML_E("%s: IRQ line not initialized", __func__);
+    return;
+  }
+
+  while (gpiod_line_request_get_value(line_req_irq, PIN_INT) == GPIOD_LINE_VALUE_INACTIVE) {
+    int ret = gpiod_line_request_wait_edge_events(line_req_irq, 1000000000LL);
+    if (ret < 0) {
+      NXPLOG_TML_E("%s: wait_edge_events failed (%s)", __func__, strerror(errno));
+      break;
+    } else if (ret == 0) {
+      NXPLOG_TML_D("%s: wait timeout, retrying...", __func__);
+      continue;
+    } else {
+      gpiod_line_request_read_edge_events(line_req_irq, event_buffer, 1);
+      break;
+    }
+  }
+#else
+  NXPLOG_TML_D("%s Enter (libgpiod v1)", __func__);
+
+  if (!line_irq) {
+    NXPLOG_TML_E("%s: IRQ line not initialized", __func__);
+    return;
+  }
+
+  while (gpiod_line_get_value(line_irq) == 0) {
+    struct timespec timeout;
+    timeout.tv_sec = 1;
+    timeout.tv_nsec = 0;
+    int ret = gpiod_line_event_wait(line_irq, &timeout);
+    if (ret < 0) {
+      NXPLOG_TML_E("%s: event_wait failed (%s)", __func__, strerror(errno));
+      break;
+    } else if (ret == 0) {
+      NXPLOG_TML_D("%s: wait timeout, retrying...", __func__);
+      continue;
+    } else {
+      struct gpiod_line_event event;
+      gpiod_line_event_read(line_irq, &event);
+      break;
+    }
+  }
+#endif
+
+  NXPLOG_TML_D("%s Exit", __func__);
+#else
   struct pollfd fds[1];
   fds[0].fd = iInterruptFd;
   fds[0].events = POLLPRI;
-  int timeout_msecs = -1;  // 100000;
+  int timeout_msecs = -1;
   int ret;
-  // usleep(500000);
   while (!GetIrqState(NULL)) {
-    // Wait for an edge on the GPIO pin to get woken up
     ret = poll(fds, 1, timeout_msecs);
     if (ret != 1) {
       NXPLOG_TML_D("wait4interrupt() %d - %s, ", ret, strerror(errno));
     }
   }
+#endif /* USE_LIBGPIOD */
 }
 
-/*****************************************************************************
-   **
-   ** Function         ConfigurePin
-   **
-   ** Description      Configure Pins such as IRQ, VEN, Firmware Download
-   **
-   ** Parameters       none
-   **
-   ** Returns           NFCSTATUS_SUCCESS - on Success/ -1 on Failure
-   ****************************************************************************/
 int NfccAltTransport::ConfigurePin()
 {
-  // Assign IO pins
+#ifdef USE_LIBGPIOD
+  if (InitGpioLines() < 0) {
+    return NFCSTATUS_INVALID_DEVICE;
+  }
+#else
   iInterruptFd = verifyPin(PIN_INT, 0, EDGE_RISING);
   if (iInterruptFd < 0) return (NFCSTATUS_INVALID_DEVICE);
   iEnableFd = verifyPin(PIN_ENABLE, 1, EDGE_NONE);
   if (iEnableFd < 0) return (NFCSTATUS_INVALID_DEVICE);
   iFwDnldFd = verifyPin(PIN_FWDNLD, 1, EDGE_NONE);
   if (iFwDnldFd < 0) return (NFCSTATUS_INVALID_DEVICE);
+#endif /* USE_LIBGPIOD */
   return NFCSTATUS_SUCCESS;
 }

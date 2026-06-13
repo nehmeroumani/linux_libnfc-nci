@@ -110,4 +110,31 @@ fi])
 
 AM_CONDITIONAL([LLCP1_3],   [test x$llcp1_3  = xtrue])
 
+# Check for libgpiod support
+AC_ARG_ENABLE([libgpiod],
+  [AS_HELP_STRING([--enable-libgpiod],
+                  [use libgpiod for GPIO control instead of sysfs (default is no)])],
+  [enable_libgpiod=$enableval],
+  [enable_libgpiod=no]
+)
+
+if test "x$enable_libgpiod" = xyes; then
+  PKG_CHECK_MODULES([GPIOD], [libgpiod >= 1.0], [
+    AC_DEFINE([USE_LIBGPIOD], [1], [Use libgpiod library for GPIO control])
+    dnl libgpiod does not expose a compile-time version macro, so derive the
+    dnl major version from pkg-config and inject it via CFLAGS. This is what
+    dnl the GPIO transport code uses to pick the v1.x vs v2.x API at build time.
+    gpiod_version=`$PKG_CONFIG --modversion libgpiod`
+    gpiod_version_major=`echo $gpiod_version | cut -d. -f1`
+    GPIOD_CFLAGS="$GPIOD_CFLAGS -DGPIOD_VERSION_MAJOR=$gpiod_version_major"
+    AC_MSG_NOTICE([libgpiod $gpiod_version detected (using v$gpiod_version_major API)])
+  ], [
+    AC_MSG_ERROR([libgpiod >= 1.0 is required when --enable-libgpiod is specified])
+  ])
+else
+  AC_MSG_NOTICE([libgpiod support is disabled, using sysfs GPIO interface])
+fi
+
+AM_CONDITIONAL([USE_LIBGPIOD], [test x$enable_libgpiod = xyes])
+
 AC_OUTPUT

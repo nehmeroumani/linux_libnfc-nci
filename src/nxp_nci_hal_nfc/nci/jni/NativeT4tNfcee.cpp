@@ -337,7 +337,11 @@ jbyteArray NativeT4tNfcee::t4tReadData(JNIEnv* e, jobject object,
     return NULL;
   }
   #endif
+  #ifdef LINUX
+  if (setup() != NFA_STATUS_OK) return NFA_STATUS_FAILED;
+  #else
   if (setup() != NFA_STATUS_OK) return NULL;
+  #endif
 
   #ifdef LINUX
   uint8_t* pFileId = buf;

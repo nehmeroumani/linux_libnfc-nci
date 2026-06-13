@@ -78,7 +78,10 @@
 
 
 /*************Used in the phDal4Nfc_messageQueueLib.c*****************/
+#if defined(_WIN32) || defined(_WIN64)
+/* key_t is only needed on Windows, Linux has it in sys/types.h */
 typedef int key_t;
+#endif
 
 //Declarations to adapt uinstd.h on Linux
 #ifdef _WIN64

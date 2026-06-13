@@ -30,8 +30,8 @@
 
 #include "phNxpLog.h"
 
-const char alternative_config_path[] = CONFIG_PATH;
-const char transport_config_path[] = "/etc/";
+const char alternative_config_path[] = "/etc/nfc/";
+const char transport_config_path[] = "/etc/nfc/";
 
 #define config_name             "libnfc-nci.conf"
 #define extra_config_base       "libnfc-nci-"

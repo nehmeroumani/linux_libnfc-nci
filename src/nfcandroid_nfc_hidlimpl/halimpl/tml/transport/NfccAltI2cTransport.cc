@@ -275,9 +275,11 @@ void NfccAltI2cTransport::Close(void* pDevHandle) {
   if (NULL != pDevHandle) {
     close((intptr_t)pDevHandle);
   }
+#ifndef USE_LIBGPIOD
   if (iEnableFd) close(iEnableFd);
   if (iInterruptFd) close(iInterruptFd);
   if (iFwDnldFd) close(iFwDnldFd);
+#endif
   NXPLOG_TML_D("%s exit", __func__);
   return;
 }

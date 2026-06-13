@@ -83,17 +83,17 @@ string ConfigPathProvider::getFilePath(FileType type) {
         << StringPrintf("%s: enter FileType:0x%02x", __func__, type);
     switch (type) {
     case VENDOR_NFC_CONFIG: {
-        string path = "//usr//local//etc//libnfc-nxp.conf";
+        string path = "/etc/nfc/libnfc-nxp.conf";
         addEnvPathIfAvailable(path);
         return path;
     } break;
     case VENDOR_ESE_CONFIG: {
-        string path = "//usr//local//etc//libese-nxp.conf";
+        string path = "/etc/nfc/libese-nxp.conf";
         addEnvPathIfAvailable(path);
         return path;
     } break;
     case SYSTEM_CONFIG: {
-        const vector<string> searchPath = { "//usr/local//etc//" };
+        const vector<string> searchPath = { "/etc/nfc/" };
         for (string path : searchPath) {
             addEnvPathIfAvailable(path);
             path.append("libnfc-nci.conf");
@@ -105,12 +105,12 @@ string ConfigPathProvider::getFilePath(FileType type) {
         return "";
     } break;
     case RF_CONFIG: {
-        string path = "//usr//local//etc//libnfc-nxp_RF.conf";
+        string path = "/etc/nfc/libnfc-nxp_RF.conf";
         addEnvPathIfAvailable(path);
         return path;
     } break;
     case TRANSIT_CONFIG: {
-        string path = "//usr/local//etc//libnfc-nxpTransit.conf";
+        string path = "/etc/nfc/libnfc-nxpTransit.conf";
         addEnvPathIfAvailable(path);
         return path;
     } break;

@@ -20,9 +20,51 @@
 #include <stdint.h>
 //#include <strings.h>
 #include <string.h>
+
+/* sys/cdefs.h is glibc-specific, not available in musl */
+#ifdef __GLIBC__
 #include <sys/cdefs.h>
+#endif
+
+/* Define compatibility macros for non-glibc systems */
+#ifndef __BEGIN_DECLS
+#ifdef __cplusplus
+#define __BEGIN_DECLS extern "C" {
+#define __END_DECLS }
+#else
+#define __BEGIN_DECLS
+#define __END_DECLS
+#endif
+#endif
+
 #include <sys/types.h>
+
+/* hardware/hardware.h is Android-specific, not available in OpenWrt */
+#ifdef ANDROID
 #include <hardware/hardware.h>
+#else
+/* Define minimal hw_module_t structure for non-Android builds */
+typedef struct hw_module_t {
+    uint32_t tag;
+    uint16_t module_api_version;
+#define version_major module_api_version
+    uint16_t hal_api_version;
+#define version_minor hal_api_version
+    const char *id;
+    const char *name;
+    const char *author;
+    void *dso;
+    uint32_t reserved[32];
+} hw_module_t;
+
+typedef struct hw_device_t {
+    uint32_t tag;
+    uint32_t version;
+    struct hw_module_t *module;
+    uint32_t reserved[12];
+    int (*close)(struct hw_device_t *device);
+} hw_device_t;
+#endif
 
 __BEGIN_DECLS
 

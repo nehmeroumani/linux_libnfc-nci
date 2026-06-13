@@ -48,7 +48,7 @@ bool ReadFully(int fd, void* data, size_t byte_count);
 // get modified. This means that ReadFullyAtOffset can be used concurrently with other calls to the
 // same function, but concurrently seeking or reading incrementally can lead to unexpected
 // behavior.
-bool ReadFullyAtOffset(int fd, void* data, size_t byte_count, off64_t offset);
+bool ReadFullyAtOffset(int fd, void* data, size_t byte_count, off_t offset);
 bool WriteFully(int fd, const void* data, size_t byte_count);
 bool RemoveFileIfExists(const std::string& path, std::string* err = nullptr);
 #if !defined(_WIN32)

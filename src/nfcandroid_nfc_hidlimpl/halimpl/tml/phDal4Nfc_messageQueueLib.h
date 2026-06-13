@@ -21,6 +21,9 @@
 #ifndef PHDAL4NFC_MESSAGEQUEUE_H
 #define PHDAL4NFC_MESSAGEQUEUE_H
 
+#include <stdint.h>
+#include <sys/types.h>
+
 #include <linux/ipc.h>
 #include <phNfcTypes.h>
 
