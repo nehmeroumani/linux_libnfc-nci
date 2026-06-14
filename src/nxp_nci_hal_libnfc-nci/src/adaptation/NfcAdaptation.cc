@@ -439,10 +439,13 @@ void NfcAdaptation::Initialize() {
 
   nfc_storage_path = NfcConfig::getString(NAME_NFA_STORAGE, "/data/nfc");
 #ifndef ANDROID//Disable Android Binder code
-  if (nfc_storage_path == "/data/nfc")
+  if (nfc_storage_path == "/data/nfc" ||
+      nfc_storage_path == "/data/vendor/nfc")
     nfc_storage_path.assign("//usr//local//etc");
   else {
-    std::cout << "FATAL ERROR: Please specify windows equivalent PATH for" << nfc_storage_path<<std::endl;
+    std::cout << "FATAL ERROR: Unrecognized NFA_STORAGE path on Linux (got "
+              << nfc_storage_path << "), using //usr//local//etc" << std::endl;
+    nfc_storage_path.assign("//usr//local//etc");
   }
 #endif
   if (NfcConfig::hasKey(NAME_NFA_DM_CFG)) {

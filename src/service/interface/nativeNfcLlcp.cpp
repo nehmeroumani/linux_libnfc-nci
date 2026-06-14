@@ -445,7 +445,7 @@ void nativeNfcLlcp_ConnLessStopServer()
     bDestSap = 0x00;
     dwLlcpReadLength = 0x00;
     blMoreDataRemaining = 0x00;
-    bLlcpReadData[LLCP_MAX_DATA_SIZE] = {0};
+    memset(bLlcpReadData, 0, LLCP_MAX_DATA_SIZE);
     sLlcpServerState = LLCP_SERVER_IDLE;
     sServerCallback = 0;
     NXPLOG_API_D ("%s: exit\n", __FUNCTION__);
@@ -459,7 +459,7 @@ void nativeNfcLlcp_ConnLessDeregisterClientCallback()
     bDestSap = 0x00;
     dwLlcpReadLength = 0x00;
     blMoreDataRemaining = 0x00;
-    bLlcpReadData[LLCP_MAX_DATA_SIZE] = {0};
+    memset(bLlcpReadData, 0, LLCP_MAX_DATA_SIZE);
     sClientCallback = 0;
     NXPLOG_API_D ("%s: exit\n", __FUNCTION__);
 }

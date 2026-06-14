@@ -57,7 +57,7 @@ NFCSTATUS NfccAltI2cTransport::OpenAndConfigure(pphTmlNfc_Config_t pConfig,
   int Fd = -1;
   // Assign IO pins
   status_value = ConfigurePin();
-  if(status_value == -1)
+  if (status_value != NFCSTATUS_SUCCESS)
     return NFCSTATUS_INVALID_DEVICE;
 
   // Use the device node from config (NXP_NFC_DEV_NODE) when provided, so the
@@ -120,9 +120,12 @@ int NfccAltI2cTransport::Read(void* pDevHandle, uint8_t* pBuffer,
   struct timeval tv;
   fd_set rfds;
 
-  UNUSED(nNbBytesToRead);
   if (NULL == pDevHandle) {
     NXPLOG_TML_E("%s devive handle is NULL", __func__);
+    return -1;
+  }
+  if (nNbBytesToRead <= 0) {
+    NXPLOG_TML_E("%s invalid read buffer size %d", __func__, nNbBytesToRead);
     return -1;
   }
 
@@ -184,6 +187,11 @@ int NfccAltI2cTransport::Read(void* pDevHandle, uint8_t* pBuffer,
     } else {
       totalBtyesToRead =
           pBuffer[NORMAL_MODE_LEN_OFFSET] + NORMAL_MODE_HEADER_LEN;
+    }
+    if (totalBtyesToRead > (uint16_t)nNbBytesToRead) {
+      NXPLOG_TML_E("%s packet length %u exceeds buffer %d", __func__,
+                   totalBtyesToRead, nNbBytesToRead);
+      return -1;
     }
     wait4interrupt();
     ret_Read = read((intptr_t)pDevHandle, (pBuffer + numRead),
@@ -284,7 +292,9 @@ void NfccAltI2cTransport::Close(void* pDevHandle) {
   if (NULL != pDevHandle) {
     close((intptr_t)pDevHandle);
   }
-#ifndef USE_LIBGPIOD
+#ifdef USE_LIBGPIOD
+  ReleaseGpioLines();
+#else
   if (iEnableFd) close(iEnableFd);
   if (iInterruptFd) close(iInterruptFd);
   if (iFwDnldFd) close(iFwDnldFd);

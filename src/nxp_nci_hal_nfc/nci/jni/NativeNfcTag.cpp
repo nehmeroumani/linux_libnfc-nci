@@ -1300,7 +1300,9 @@ static jbyteArray nativeNfcTag_doTransceive(JNIEnv* e, jobject o,
 
     DLOG_IF(INFO, nfc_debug_enabled) << StringPrintf(
         "%s: response %zu bytes", __func__, sRxDataBuffer.size());
+#ifndef LINUX
     retVal = sRxDataBuffer.size();
+#endif
     if ((natTag.getProtocol() == NFA_PROTOCOL_T2T) &&
         natTag.isT2tNackResponse(sRxDataBuffer.data(), sRxDataBuffer.size())) {
       isNack = true;
@@ -1350,10 +1352,11 @@ static jbyteArray nativeNfcTag_doTransceive(JNIEnv* e, jobject o,
               LOG(ERROR) << StringPrintf("%s: Failed to allocate java byte array",
                                        __func__);
 #else
-            if (rxBufferLen <= transDataLen) {
+            if (rxBufferLen > (int)transDataLen) {
               rxBufferLen = transDataLen;
             }
             memcpy(rxBuffer, transData, rxBufferLen);
+            retVal = rxBufferLen;
 #endif
           }
         }
@@ -1368,10 +1371,11 @@ static jbyteArray nativeNfcTag_doTransceive(JNIEnv* e, jobject o,
           LOG(ERROR) << StringPrintf("%s: Failed to allocate java byte array",
                                      __func__);
 #else
-        if (rxBufferLen <= sRxDataBuffer.size()) {
+        if (rxBufferLen > (int)sRxDataBuffer.size()) {
           rxBufferLen = sRxDataBuffer.size();
         }
         memcpy(rxBuffer, sRxDataBuffer.data(), rxBufferLen);
+        retVal = rxBufferLen;
 #endif
       }  // else a nack is treated as a transceive failure to the upper layers
 
