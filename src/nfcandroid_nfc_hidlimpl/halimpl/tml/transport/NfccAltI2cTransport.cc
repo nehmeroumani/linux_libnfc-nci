@@ -59,12 +59,21 @@ NFCSTATUS NfccAltI2cTransport::OpenAndConfigure(pphTmlNfc_Config_t pConfig,
   status_value = ConfigurePin();
   if(status_value == -1)
     return NFCSTATUS_INVALID_DEVICE;
-  NXPLOG_TML_D("NFCHW - open I2C bus - %s\n", I2C_BUS);
+
+  // Use the device node from config (NXP_NFC_DEV_NODE) when provided, so the
+  // I2C bus can be changed (e.g. to a software i2c-gpio bus that handles the
+  // PN7160 clock stretching) without recompiling. Fall back to the default.
+  const char* i2c_bus = I2C_BUS;
+  if (pConfig != NULL && pConfig->pDevName != NULL &&
+      ((const char*)pConfig->pDevName)[0] != '\0') {
+    i2c_bus = (const char*)pConfig->pDevName;
+  }
+  NXPLOG_TML_D("NFCHW - open I2C bus - %s\n", i2c_bus);
 
   // I2C bus
-  Fd = open(I2C_BUS, O_RDWR | O_NOCTTY);
+  Fd = open(i2c_bus, O_RDWR | O_NOCTTY);
   if (Fd < 0) {
-    NXPLOG_TML_E("Could not open I2C bus '%s' (%s)", I2C_BUS, strerror(errno));
+    NXPLOG_TML_E("Could not open I2C bus '%s' (%s)", i2c_bus, strerror(errno));
     Close(NULL);
     return (NFCSTATUS_INVALID_DEVICE);
   }
