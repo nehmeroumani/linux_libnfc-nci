@@ -20,6 +20,7 @@
 #include <pthread.h>
 
 #include "nativeNfcSnep.h"
+#include "nativeNdef.h"
 #include "nativeNfcManager.h"
 #include "SyncEvent.h"
 #include "nfa_api.h"
@@ -386,8 +387,12 @@ static void nativeNfcSnep_doPutReceived (tNFA_HANDLE handle, UINT8 *data, UINT32
     {
         return;
     }
+    /* the message comes from an untrusted peer: only deliver it to the
+       application if it is a valid NDEF message, mirroring the validation
+       done on the outbound put path */
     if((sSnepServerConnectionHandle == handle) &&
-           NULL != data && 0x00 != length)
+           NULL != data && 0x00 != length &&
+           0 != nativeNdef_validateMessage(data, length))
     {
         if (sServerCallback&& (NULL != sServerCallback->onMessageReceived))
         {

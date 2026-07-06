@@ -33,6 +33,7 @@
 #define BT_HANDOVER_TYPE_SHORT_LOCAL_NAME   0x08
 #define BT_HANDOVER_LE_ROLE_CENTRAL_ONLY    0x01
 
+#define WIFI_HANDOVER_CREDENTIAL_ID    0x100E
 #define WIFI_HANDOVER_SSID_ID   0x1045
 #define WIFI_HANDOVER_NETWORK_KEY_ID    0x1027
 
@@ -111,6 +112,134 @@ static INT32 parseBluetoothAddress(UINT8* payload, UINT32 payload_length, UINT8 
     return 0;
 }
 
+/*
+** Walk the record headers to find where the first NDEF message in the
+** buffer ends.  Every access is bounds-checked against the buffer, so
+** this is safe on untrusted input.  Returns the message length, or 0 if
+** the headers run past the end of the buffer.
+*/
+static UINT32 ndefMessageLength(UINT8 *buff, UINT32 bufLen)
+{
+    UINT32 offset = 0;
+    UINT8 rec_hdr;
+    UINT32 type_len, id_len, payload_len;
+
+    do
+    {
+        /* header byte + type length + short payload length */
+        if (bufLen - offset < 3)
+        {
+            return 0;
+        }
+        rec_hdr = buff[offset++];
+        type_len = buff[offset++];
+        if (rec_hdr & NDEF_SR_MASK)
+        {
+            payload_len = buff[offset++];
+        }
+        else
+        {
+            if (bufLen - offset < 4)
+            {
+                return 0;
+            }
+            payload_len = ((UINT32)buff[offset] << 24) | ((UINT32)buff[offset + 1] << 16) |
+                          ((UINT32)buff[offset + 2] << 8) | buff[offset + 3];
+            offset += 4;
+        }
+        if (rec_hdr & NDEF_IL_MASK)
+        {
+            if (bufLen - offset < 1)
+            {
+                return 0;
+            }
+            id_len = buff[offset++];
+        }
+        else
+        {
+            id_len = 0;
+        }
+        if (type_len + id_len > bufLen - offset ||
+            payload_len > bufLen - offset - type_len - id_len)
+        {
+            return 0;
+        }
+        offset += type_len + id_len + payload_len;
+    } while (!(rec_hdr & NDEF_ME_MASK));
+    return offset;
+}
+
+/*
+** Shared validation for the public NDEF readers.  The documented API
+** contract passes "the length of buffer", which may exceed the message
+** length, while NDEF_MsgValidate() demands an exact message length, so
+** locate the end of the message first and validate that prefix.  Chunked
+** records are allowed; the readers then see the first chunk's payload.
+** Returns the exact message length, or 0 if no valid NDEF message starts
+** at the beginning of the buffer.
+*/
+UINT32 nativeNdef_validateMessage(UINT8 *msg, UINT32 length)
+{
+    UINT32 msgLen;
+
+    if (msg == NULL || length == 0)
+    {
+        return 0;
+    }
+    msgLen = ndefMessageLength(msg, length);
+    if (msgLen == 0 || NDEF_OK != NDEF_MsgValidate(msg, msgLen, TRUE))
+    {
+        return 0;
+    }
+    return msgLen;
+}
+
+/*
+** Walk the EIR elements of a (validated) BT/BLE OOB record payload,
+** filling in device name and, when requested, the device address.
+*/
+static void parseBtOobEir(UINT8 *p_payload, UINT32 payload_len, UINT32 index,
+                          BOOLEAN parse_mac, nfc_btoob_pairing_t *bt)
+{
+    UINT8 len;
+    UINT8 type;
+
+    /* EIR elements: 1-byte length (covers type + data), 1-byte type */
+    while (index + 2 <= payload_len)
+    {
+        len = p_payload[index++];
+        type = p_payload[index++];
+        if (len < 1 || (UINT32)(len - 1) > payload_len - index)
+        {
+            break;  /* malformed element, stop walking */
+        }
+        switch (type)
+        {
+            case BT_HANDOVER_TYPE_MAC:
+                if (parse_mac)
+                {
+                    parseBluetoothAddress(&p_payload[index], len - 1, bt->address);
+                }
+                break;
+            case BT_HANDOVER_TYPE_SHORT_LOCAL_NAME:
+                bt->device_name = &p_payload[index];
+                bt->device_name_length = len - 1;
+                break;
+            case BT_HANDOVER_TYPE_LONG_LOCAL_NAME:
+                if (bt->device_name)
+                {
+                    break;  // prefer short name
+                }
+                bt->device_name = &p_payload[index];
+                bt->device_name_length = len - 1;
+                break;
+            default:
+                break;
+        }
+        index += len - 1;  /* skip element data */
+    }
+}
+
 static tNFA_STATUS getDeviceCps(UINT8 *record, UINT8 *ref_name, UINT8 ref_len, nfc_handover_cps_t *power)
 {
     UINT8 *p_ac_record, *p_ac_payload;
@@ -171,23 +300,34 @@ static tNFA_STATUS getDeviceCps(UINT8 *record, UINT8 *ref_name, UINT8 ref_len, n
 
 nfc_friendly_type_t nativeNdef_getFriendlyType(UINT8 tnf, UINT8 *type, UINT8 typeLength)
 {
-    if(tnf == NDEF_TNF_WELLKNOWN
-                && (memcmp(type, RTD_TEXT, typeLength) == 0))
-    {
-        return NDEF_FRIENDLY_TYPE_TEXT;
-    }
-    if(tnf == NDEF_TNF_URI 
-                || (tnf == NDEF_TNF_WELLKNOWN && (memcmp(type, RTD_URL, typeLength) == 0)))
+    if (tnf == NDEF_TNF_URI)
     {
         return NDEF_FRIENDLY_TYPE_URL;
     }
-    if (tnf == NDEF_TNF_WELLKNOWN
-                && (memcmp(type, RTD_Hs, typeLength) == 0))
+    /* typeLength comes from an untrusted record: compare only when it
+       matches the RTD constant exactly, or memcmp reads past the constant
+       (and a zero length matches everything). */
+    if (tnf != NDEF_TNF_WELLKNOWN || type == NULL)
+    {
+        return NDEF_FRIENDLY_TYPE_OTHER;
+    }
+    if (typeLength == sizeof(RTD_TEXT)
+                && (memcmp(type, RTD_TEXT, sizeof(RTD_TEXT)) == 0))
+    {
+        return NDEF_FRIENDLY_TYPE_TEXT;
+    }
+    if (typeLength == sizeof(RTD_URL)
+                && (memcmp(type, RTD_URL, sizeof(RTD_URL)) == 0))
+    {
+        return NDEF_FRIENDLY_TYPE_URL;
+    }
+    if (typeLength == sizeof(RTD_Hs)
+                && (memcmp(type, RTD_Hs, sizeof(RTD_Hs)) == 0))
     {
         return NDEF_FRIENDLY_TYPE_HS;
     }
-    if (tnf == NDEF_TNF_WELLKNOWN
-                && (memcmp(type, RTD_Hr, typeLength) == 0))
+    if (typeLength == sizeof(RTD_Hr)
+                && (memcmp(type, RTD_Hr, sizeof(RTD_Hr)) == 0))
     {
         return NDEF_FRIENDLY_TYPE_HR;
     }
@@ -382,8 +522,7 @@ INT32 nativeNdef_readText( UINT8*ndefBuff, UINT32 ndefBuffLen, char * outText, U
     UINT8 ndef_typeLength = 0;
     nfc_friendly_type_t friendly_type = NDEF_FRIENDLY_TYPE_OTHER;
 
-    if (ndefBuff == NULL || ndefBuffLen == 0 ||
-        NDEF_OK != NDEF_MsgValidate (ndefBuff, ndefBuffLen, FALSE))
+    if (nativeNdef_validateMessage(ndefBuff, ndefBuffLen) == 0)
     {
         return -1;
     }
@@ -398,7 +537,8 @@ INT32 nativeNdef_readText( UINT8*ndefBuff, UINT32 ndefBuffLen, char * outText, U
     {
         return -1;
     }
-    langCodeLen = payload[0];
+    /* status byte: bit 7 = UTF-16 flag, low 6 bits = language code length */
+    langCodeLen = payload[0] & 0x3F;
     /* payload = status byte + language code + text; guard the subtraction
        against a language length that overruns the payload. */
     if ((UINT32)(langCodeLen + 1) > payloadLength)
@@ -424,8 +564,7 @@ INT32 nativeNdef_readLang( UINT8*ndefBuff, UINT32 ndefBuffLen, char * outLang, U
     UINT8 ndef_typeLength = 0;
     nfc_friendly_type_t friendly_type = NDEF_FRIENDLY_TYPE_OTHER;
 
-    if (ndefBuff == NULL || ndefBuffLen == 0 ||
-        NDEF_OK != NDEF_MsgValidate (ndefBuff, ndefBuffLen, FALSE))
+    if (nativeNdef_validateMessage(ndefBuff, ndefBuffLen) == 0)
     {
         return -1;
     }
@@ -440,7 +579,8 @@ INT32 nativeNdef_readLang( UINT8*ndefBuff, UINT32 ndefBuffLen, char * outLang, U
     {
         return -1;
     }
-    langCodeLen = payload[0];
+    /* status byte: bit 7 = UTF-16 flag, low 6 bits = language code length */
+    langCodeLen = payload[0] & 0x3F;
     /* language code follows the status byte; it must fit in the payload */
     if ((UINT32)(langCodeLen + 1) > payloadLength || LangLen < (UINT32)langCodeLen)
     {
@@ -461,8 +601,7 @@ INT32 nativeNdef_readUrl(UINT8*ndefBuff, UINT32 ndefBuffLen, char * outUrl, UINT
     UINT8 ndef_typeLength = 0;
     nfc_friendly_type_t friendly_type = NDEF_FRIENDLY_TYPE_OTHER;
 
-    if (ndefBuff == NULL || ndefBuffLen == 0 ||
-        NDEF_OK != NDEF_MsgValidate (ndefBuff, ndefBuffLen, FALSE))
+    if (nativeNdef_validateMessage(ndefBuff, ndefBuffLen) == 0)
     {
         return -1;
     }
@@ -507,10 +646,7 @@ INT32 nativeNdef_readHr(UINT8*ndefBuff, UINT32 ndefBuffLen, nfc_handover_request
     UINT32 record_payload_len = 0;
     UINT8 *p_id = NULL;
     UINT8 id_len = 0;
-    UINT8   version = 0;
     UINT32 index = 0;
-    UINT8 len = 0;
-    UINT8 type = 0xFF;
 
     if (hrInfo == NULL)
     {
@@ -522,8 +658,7 @@ INT32 nativeNdef_readHr(UINT8*ndefBuff, UINT32 ndefBuffLen, nfc_handover_request
     /* Validate the whole message first so that every record header and
        payload length used by the NDEF record walkers is consistent with
        the buffer; the message may come from an untrusted peer. */
-    if (ndefBuff == NULL || ndefBuffLen == 0 ||
-        NDEF_OK != NDEF_MsgValidate (ndefBuff, ndefBuffLen, FALSE))
+    if (nativeNdef_validateMessage(ndefBuff, ndefBuffLen) == 0)
     {
         NXPLOG_API_E ("%s: Invalid NDEF message", __FUNCTION__);
         return -1;
@@ -587,7 +722,7 @@ INT32 nativeNdef_readHr(UINT8*ndefBuff, UINT32 ndefBuffLen, nfc_handover_request
         }
         hrInfo->bluetooth.type = HANDOVER_TYPE_BT;
         hrInfo->bluetooth.ndef = p_record;
-        hrInfo->bluetooth.ndef_length = record_payload_len;
+        hrInfo->bluetooth.ndef_length = NDEF_MsgGetRecLength(p_record);
         index = 2;
         if (record_payload_len < index ||
             parseBluetoothAddress(&p_payload[index] , record_payload_len - index, hrInfo->bluetooth.address)!= 0)
@@ -596,34 +731,7 @@ INT32 nativeNdef_readHr(UINT8*ndefBuff, UINT32 ndefBuffLen, nfc_handover_request
             return -1;
         }
         index += BLUETOOTH_ADDRESS_LENGTH;
-        /* EIR elements: 1-byte length (covers type + data), 1-byte type */
-        while (index + 2 <= record_payload_len)
-        {
-            len = p_payload[index++];
-            type = p_payload[index++];
-            if (len < 1 || (UINT32)(len - 1) > record_payload_len - index)
-            {
-                break;  /* malformed element, stop walking */
-            }
-            switch (type)
-            {
-                case BT_HANDOVER_TYPE_SHORT_LOCAL_NAME:
-                    hrInfo->bluetooth.device_name = &p_payload[index];
-                    hrInfo->bluetooth.device_name_length = len - 1;
-                    break;
-                case BT_HANDOVER_TYPE_LONG_LOCAL_NAME:
-                    if (hrInfo->bluetooth.device_name)
-                    {
-                        break;  // prefer short name
-                    }
-                    hrInfo->bluetooth.device_name = &p_payload[index];
-                    hrInfo->bluetooth.device_name_length = len - 1;
-                    break;
-                default:
-                    break;
-            }
-            index += len - 1;  /* skip element data */
-        }
+        parseBtOobEir(p_payload, record_payload_len, index, FALSE, &hrInfo->bluetooth);
     }
     else
     {
@@ -656,39 +764,8 @@ INT32 nativeNdef_readHr(UINT8*ndefBuff, UINT32 ndefBuffLen, nfc_handover_request
             }
             hrInfo->bluetooth.type = HANDOVER_TYPE_BLE;
             hrInfo->bluetooth.ndef = p_record;
-            hrInfo->bluetooth.ndef_length = record_payload_len;
-            index = 0;
-            /* EIR elements: 1-byte length (covers type + data), 1-byte type */
-            while (index + 2 <= record_payload_len)
-            {
-                len = p_payload[index++];
-                type = p_payload[index++];
-                if (len < 1 || (UINT32)(len - 1) > record_payload_len - index)
-                {
-                    break;  /* malformed element, stop walking */
-                }
-                switch (type)
-                {
-                    case BT_HANDOVER_TYPE_MAC:
-                        parseBluetoothAddress(&p_payload[index] , len - 1, hrInfo->bluetooth.address);
-                        break;
-                    case BT_HANDOVER_TYPE_SHORT_LOCAL_NAME:
-                        hrInfo->bluetooth.device_name = &p_payload[index];
-                        hrInfo->bluetooth.device_name_length = len - 1;
-                        break;
-                    case BT_HANDOVER_TYPE_LONG_LOCAL_NAME:
-                        if (hrInfo->bluetooth.device_name)
-                        {
-                            break;  // prefer short name
-                        }
-                        hrInfo->bluetooth.device_name = &p_payload[index];
-                        hrInfo->bluetooth.device_name_length = len - 1;
-                        break;
-                    default:
-                        break;
-                }
-                index += len - 1;  /* skip element data */
-            }
+            hrInfo->bluetooth.ndef_length = NDEF_MsgGetRecLength(p_record);
+            parseBtOobEir(p_payload, record_payload_len, 0, TRUE, &hrInfo->bluetooth);
         }
     }
     p_record = NDEF_MsgGetFirstRecByType (ndefBuff, NDEF_TNF_MEDIA,
@@ -697,17 +774,11 @@ INT32 nativeNdef_readHr(UINT8*ndefBuff, UINT32 ndefBuffLen, nfc_handover_request
     if (p_record)
     {
         NXPLOG_API_D ("%s: Found WiFi record", __FUNCTION__);
-        /* record_payload_len still holds the bluetooth record's length here;
-           fetch this record's own payload length. */
-        p_payload = NDEF_RecGetPayload(p_record, (uint32_t *)&record_payload_len);
-        if (p_payload == NULL)
-        {
-            NXPLOG_API_E ("%s: Failed to retreive NDEF payload", __FUNCTION__);
-            return -1;
-        }
+        /* a zero-length WSC payload is still a valid carrier record; the
+           record itself is exported, so no payload fetch is needed here */
         hrInfo->wifi.has_wifi = TRUE;
         hrInfo->wifi.ndef = p_record;
-        hrInfo->wifi.ndef_length = record_payload_len;
+        hrInfo->wifi.ndef_length = NDEF_MsgGetRecLength(p_record);
     }
     return 0;
 }
@@ -722,10 +793,7 @@ INT32 nativeNdef_readHs(UINT8*ndefBuff, UINT32 ndefBuffLen, nfc_handover_select_
     UINT32 record_payload_len = 0;
     UINT8 *p_id = NULL;
     UINT8 id_len = 0;
-    UINT8  version = 0;
     UINT32 index = 0;
-    UINT8 bt_len = 0;
-    UINT8 bt_type = 0xFF;
     UINT16 wifi_len = 0;
     UINT16 wifi_type = 0xFFFF;
     INT32 status = -1;
@@ -739,8 +807,7 @@ INT32 nativeNdef_readHs(UINT8*ndefBuff, UINT32 ndefBuffLen, nfc_handover_select_
     /* Validate the whole message first so that every record header and
        payload length used by the NDEF record walkers is consistent with
        the buffer; the message may come from an untrusted peer. */
-    if (ndefBuff == NULL || ndefBuffLen == 0 ||
-        NDEF_OK != NDEF_MsgValidate (ndefBuff, ndefBuffLen, FALSE))
+    if (nativeNdef_validateMessage(ndefBuff, ndefBuffLen) == 0)
     {
         NXPLOG_API_E ("%s: Invalid NDEF message", __FUNCTION__);
         return -1;
@@ -809,7 +876,7 @@ INT32 nativeNdef_readHs(UINT8*ndefBuff, UINT32 ndefBuffLen, nfc_handover_select_
         }
         hsInfo->bluetooth.type = HANDOVER_TYPE_BT;
         hsInfo->bluetooth.ndef = p_record;
-        hsInfo->bluetooth.ndef_length = record_payload_len;
+        hsInfo->bluetooth.ndef_length = NDEF_MsgGetRecLength(p_record);
         index = 2;
         if (record_payload_len < index ||
             parseBluetoothAddress(&p_payload[index] , record_payload_len - index, hsInfo->bluetooth.address)!= 0)
@@ -818,34 +885,7 @@ INT32 nativeNdef_readHs(UINT8*ndefBuff, UINT32 ndefBuffLen, nfc_handover_select_
             return -1;
         }
         index += BLUETOOTH_ADDRESS_LENGTH;
-        /* EIR elements: 1-byte length (covers type + data), 1-byte type */
-        while (index + 2 <= record_payload_len)
-        {
-            bt_len = p_payload[index++];
-            bt_type = p_payload[index++];
-            if (bt_len < 1 || (UINT32)(bt_len - 1) > record_payload_len - index)
-            {
-                break;  /* malformed element, stop walking */
-            }
-            switch (bt_type)
-            {
-                case BT_HANDOVER_TYPE_SHORT_LOCAL_NAME:
-                    hsInfo->bluetooth.device_name = &p_payload[index];
-                    hsInfo->bluetooth.device_name_length = bt_len-1;
-                    break;
-                case BT_HANDOVER_TYPE_LONG_LOCAL_NAME:
-                    if (hsInfo->bluetooth.device_name)
-                    {
-                        break;  // prefer short name
-                    }
-                    hsInfo->bluetooth.device_name = &p_payload[index];
-                    hsInfo->bluetooth.device_name_length = bt_len-1;
-                    break;
-                default:
-                    break;
-            }
-            index += bt_len - 1;  /* skip element data */
-        }
+        parseBtOobEir(p_payload, record_payload_len, index, FALSE, &hsInfo->bluetooth);
     }
     else
     {
@@ -878,39 +918,8 @@ INT32 nativeNdef_readHs(UINT8*ndefBuff, UINT32 ndefBuffLen, nfc_handover_select_
             }
             hsInfo->bluetooth.type = HANDOVER_TYPE_BLE;
             hsInfo->bluetooth.ndef = p_record;
-            hsInfo->bluetooth.ndef_length = record_payload_len;
-            index = 0;
-            /* EIR elements: 1-byte length (covers type + data), 1-byte type */
-            while (index + 2 <= record_payload_len)
-            {
-                bt_len = p_payload[index++];
-                bt_type = p_payload[index++];
-                if (bt_len < 1 || (UINT32)(bt_len - 1) > record_payload_len - index)
-                {
-                    break;  /* malformed element, stop walking */
-                }
-                switch (bt_type)
-                {
-                    case BT_HANDOVER_TYPE_MAC:
-                        parseBluetoothAddress(&p_payload[index] , bt_len - 1, hsInfo->bluetooth.address);
-                        break;
-                    case BT_HANDOVER_TYPE_SHORT_LOCAL_NAME:
-                        hsInfo->bluetooth.device_name = &p_payload[index];
-                        hsInfo->bluetooth.device_name_length = bt_len-1;
-                        break;
-                    case BT_HANDOVER_TYPE_LONG_LOCAL_NAME:
-                        if (hsInfo->bluetooth.device_name)
-                        {
-                            break;  // prefer short name
-                        }
-                        hsInfo->bluetooth.device_name = &p_payload[index];
-                        hsInfo->bluetooth.device_name_length = bt_len-1;
-                        break;
-                    default:
-                        break;
-                }
-                index += bt_len - 1;  /* skip element data */
-            }
+            hsInfo->bluetooth.ndef_length = NDEF_MsgGetRecLength(p_record);
+            parseBtOobEir(p_payload, record_payload_len, 0, TRUE, &hsInfo->bluetooth);
         }
     }
     p_record = NDEF_MsgGetFirstRecByType (ndefBuff, NDEF_TNF_MEDIA,
@@ -934,14 +943,15 @@ INT32 nativeNdef_readHs(UINT8*ndefBuff, UINT32 ndefBuffLen, nfc_handover_select_
                 hsInfo->wifi.power_state = HANDOVER_CPS_UNKNOWN;
             }
         }
+        hsInfo->wifi.ndef = p_record;
+        hsInfo->wifi.ndef_length = NDEF_MsgGetRecLength(p_record);
+        /* NDEF_RecGetPayload() returns NULL for a zero-length payload,
+           which is still a valid (if useless) carrier record */
         p_payload = NDEF_RecGetPayload(p_record, (uint32_t *)&record_payload_len);
         if (p_payload == NULL)
         {
-            NXPLOG_API_E ("%s: Failed to retreive NDEF payload", __FUNCTION__);
-            return -1;
+            return status;
         }
-        hsInfo->wifi.ndef = p_record;
-        hsInfo->wifi.ndef_length = record_payload_len;
         index = 0;
         /* WSC attributes: 2-byte type, 2-byte length, then value */
         while (index + 4 <= record_payload_len)
@@ -955,6 +965,11 @@ INT32 nativeNdef_readHs(UINT8*ndefBuff, UINT32 ndefBuffLen, nfc_handover_select_
             }
             switch (wifi_type)
             {
+                case WIFI_HANDOVER_CREDENTIAL_ID:
+                    /* Credential is a container whose value is a list of
+                       nested attributes (SSID, Network Key, ...); descend
+                       into it instead of skipping its value. */
+                    continue;
                 case WIFI_HANDOVER_SSID_ID:
                     hsInfo->wifi.ssid_length = wifi_len;
                     hsInfo->wifi.ssid = &p_payload[index];

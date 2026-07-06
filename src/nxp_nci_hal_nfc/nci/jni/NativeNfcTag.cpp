@@ -370,8 +370,9 @@ static jbyteArray nativeNfcTag_doRead(JNIEnv* e, jobject) {
       buf = e->NewByteArray(sReadDataLen);
       e->SetByteArrayRegion(buf, 0, sReadDataLen, (jbyte*)sReadData);
 #else
-      /* Never copy more than the caller's buffer can hold; the full message
-         length is still reported via the return value. */
+      /* Never copy more than the caller's buffer can hold; the returned
+         length never exceeds the copied bytes, so a truncated message is
+         reported as a failure below rather than as a bogus length. */
       if (ndefBufferLength > sReadDataLen) {
         ndefBufferLength = sReadDataLen;
       }
@@ -401,6 +402,7 @@ static jbyteArray nativeNfcTag_doRead(JNIEnv* e, jobject) {
   DLOG_IF(INFO, nfc_debug_enabled) << StringPrintf("%s: exit", __func__);
   return buf;
 #else
+  UINT32 validLen = 0;
   if (sReadDataLen > 0) //if stack actually read data from the tag
   {
     NXPLOG_API_D ("%s: read %u bytes", __FUNCTION__, sReadDataLen);
@@ -410,6 +412,16 @@ static jbyteArray nativeNfcTag_doRead(JNIEnv* e, jobject) {
   if (isNdef)
   {
     uint8_t *pRec;
+    /* The tag contents are untrusted; validate before walking records.
+       ndefBufferLength was clamped to the copied byte count above, so a
+       message truncated by a too-small caller buffer fails here too. */
+    validLen = nativeNdef_validateMessage(ndefBuffer, ndefBufferLength);
+    if (validLen == 0)
+    {
+      NXPLOG_API_D ("%s: invalid Ndef message\n", __FUNCTION__);
+      isNdef = FALSE;
+      goto End;
+    }
     pRec = NDEF_MsgGetRecByIndex((uint8_t*)ndefBuffer, 0);
     if (pRec == NULL )
     {
@@ -430,7 +442,7 @@ End:
     }
     gSyncMutex.unlock();
     NXPLOG_API_D ("%s: exit", __FUNCTION__);
-    return (isNdef) ? sReadDataLen : -1;
+    return (isNdef) ? (int32_t)validLen : -1;
 #endif
 }
 

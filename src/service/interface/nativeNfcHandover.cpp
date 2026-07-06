@@ -20,6 +20,7 @@
 #include <pthread.h>
 
 #include "nativeNfcHandover.h"
+#include "nativeNdef.h"
 #include "nativeNfcManager.h"
 #include "SyncEvent.h"
 
@@ -56,6 +57,12 @@ static void nativeNfcHandover_notifyHrRecieved(UINT8 *data, UINT32 length)
 {
     if (nfcManager_isNfcActive())
     {
+        /* peer-supplied message: drop it unless it is a valid NDEF message */
+        if (0 == nativeNdef_validateMessage(data, length))
+        {
+            NXPLOG_API_E ("%s: invalid NDEF message, dropped", __FUNCTION__);
+            return;
+        }
         if(sCallback && (NULL != sCallback->onHandoverRequestReceived))
         {
             sCallback->onHandoverRequestReceived(data, length);
@@ -67,6 +74,12 @@ static void nativeNfcHandover_notifyHsRecieved(UINT8 *data, UINT32 length)
 {
     if (nfcManager_isNfcActive())
     {
+        /* peer-supplied message: drop it unless it is a valid NDEF message */
+        if (0 == nativeNdef_validateMessage(data, length))
+        {
+            NXPLOG_API_E ("%s: invalid NDEF message, dropped", __FUNCTION__);
+            return;
+        }
         if(sCallback && (NULL != sCallback->onHandoverSelectReceived))
         {
             sCallback->onHandoverSelectReceived(data, length);

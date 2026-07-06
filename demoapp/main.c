@@ -907,10 +907,10 @@ void PrintNDEFContent(nfc_tag_info_t* TagInfo, ndef_info_t* NDEFinfo, unsigned c
                         printf("%c ", HandoverSelectContent.bluetooth.device_name[i]);
                     }
                     printf("'\n\t\t\t\tNDEF Record :     \n\t\t\t\t");
-                    for(i = 0x01; i < HandoverSelectContent.bluetooth.ndef_length+1; i++)
+                    for(i = 0x00; i < HandoverSelectContent.bluetooth.ndef_length; i++)
                     {
                         printf("%02X ", HandoverSelectContent.bluetooth.ndef[i]);
-                        if(i%8 == 0)
+                        if((i+1)%8 == 0)
                         {
                             printf("\n\t\t\t\t");
                         }
@@ -941,28 +941,28 @@ void PrintNDEFContent(nfc_tag_info_t* TagInfo, ndef_info_t* NDEFinfo, unsigned c
                     }
                     
                     printf("\t\t\t\tSSID :         '");
-                    for(i = 0x01; i < HandoverSelectContent.wifi.ssid_length+1; i++)
+                    for(i = 0x00; i < HandoverSelectContent.wifi.ssid_length; i++)
                     {
                         printf("%02X ", HandoverSelectContent.wifi.ssid[i]);
-                        if(i%30 == 0)
+                        if((i+1)%30 == 0)
                         {
                             printf("\n");
                         }
                     }
                     printf("'\n\t\t\t\tKey :          '");
-                    for(i = 0x01; i < HandoverSelectContent.wifi.key_length+1; i++)
+                    for(i = 0x00; i < HandoverSelectContent.wifi.key_length; i++)
                     {
                         printf("%02X ", HandoverSelectContent.wifi.key[i]);
-                        if(i%30 == 0)
+                        if((i+1)%30 == 0)
                         {
                             printf("\n");
                         }
                     }                
                     printf("'\n\t\t\t\tNDEF Record : \n");
-                    for(i = 0x01; i < HandoverSelectContent.wifi.ndef_length+1; i++)
+                    for(i = 0x00; i < HandoverSelectContent.wifi.ndef_length; i++)
                     {
                         printf("%02X ", HandoverSelectContent.wifi.ndef[i]);
-                        if(i%30 == 0)
+                        if((i+1)%30 == 0)
                         {
                             printf("\n");
                         }
@@ -1028,20 +1028,20 @@ void PrintNDEFContent(nfc_tag_info_t* TagInfo, ndef_info_t* NDEFinfo, unsigned c
                         printf("%c ", HandoverRequestContent.bluetooth.device_name[i]);
                     }
                     printf("'\n\t\t\t\tNDEF Record :     \n\t\t\t\t");
-                    for(i = 0x01; i < HandoverRequestContent.bluetooth.ndef_length+1; i++)
+                    for(i = 0x00; i < HandoverRequestContent.bluetooth.ndef_length; i++)
                     {
                         printf("%02X ", HandoverRequestContent.bluetooth.ndef[i]);
-                        if(i%8 == 0)
+                        if((i+1)%8 == 0)
                         {
                             printf("\n\t\t\t\t");
                         }
                     }
                     printf("\n\t\t\t\tWIFI :         'Has WIFI Request : %X '", HandoverRequestContent.wifi.has_wifi);
                     printf("\n\t\t\t\tNDEF Record :     \n\t\t\t\t");
-                    for(i = 0x01; i < HandoverRequestContent.wifi.ndef_length+1; i++)
+                    for(i = 0x00; i < HandoverRequestContent.wifi.ndef_length; i++)
                     {
                         printf("%02X ", HandoverRequestContent.wifi.ndef[i]);
-                        if(i%8 == 0)
+                        if((i+1)%8 == 0)
                         {
                             printf("\n\t\t\t\t");
                         }

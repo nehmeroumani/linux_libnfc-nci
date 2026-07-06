@@ -21,6 +21,13 @@
 #include "data_types.h"
 #include "linux_nfc_api.h"
 
+/*
+ * Validate an NDEF message held in a buffer that may be larger than the
+ * message itself. Returns the exact message length, or 0 if no valid NDEF
+ * message starts at the beginning of the buffer.
+ */
+extern UINT32 nativeNdef_validateMessage(UINT8 *msg, UINT32 length);
+
 extern nfc_friendly_type_t nativeNdef_getFriendlyType(UINT8 tnf, UINT8 *type, UINT8 typeLength);
 
 extern INT32 nativeNdef_readText( UINT8*ndefBuff, UINT32 ndefBuffLen, char * outText, UINT32 textLen);
