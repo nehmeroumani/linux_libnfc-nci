@@ -20,6 +20,7 @@
 #include <android-base/parseint.h>
 #include <android-base/strings.h>
 
+#include <climits>
 #include <sstream>
 #include "nci_config.h"
 #include <stdio.h>
@@ -867,9 +868,13 @@ extern "C" int GetStrValue(const char* name, char* pValue, unsigned long l)
 
     switch (len)
     {
+#if UINT_MAX != ULONG_MAX
+    /* On 32-bit targets unsigned int and unsigned long are the same size,
+       which would make this a duplicate case label. */
     case sizeof(unsigned int):
         *(static_cast<unsigned int*>(pValue)) = (unsigned int)v;
         break;
+#endif
     case sizeof(unsigned long):
         *(static_cast<unsigned long*>(pValue)) = (unsigned long)v;
         break;
