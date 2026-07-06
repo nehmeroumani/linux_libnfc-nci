@@ -66,3 +66,6 @@ Makefile
 # Editor
 *.orig
 *.rej
+
+# macos
+.DS_Store

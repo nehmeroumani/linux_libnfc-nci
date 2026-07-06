@@ -53,6 +53,9 @@ typedef struct hw_module_t {
     const char *id;
     const char *name;
     const char *author;
+    /* struct hw_module_methods_t* in the real Android layout; kept here so
+       the field order matches even though it is unused on Linux */
+    void *methods;
     void *dso;
     uint32_t reserved[32];
 } hw_module_t;

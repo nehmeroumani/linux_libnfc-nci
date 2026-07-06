@@ -32,7 +32,8 @@ endif
 
 if USE_LIBGPIOD
 AM_CPPFLAGS += -DUSE_LIBGPIOD $(GPIOD_CFLAGS)
-AM_LDFLAGS += $(GPIOD_LIBS)
+# GPIOD_LIBS is added via libnfc_nci_linux_la_LIBADD; the only target that
+# uses libgpiod is libnfc_nci_linux.la
 endif
 
 lib_LTLIBRARIES += libpn7160_fw.la

@@ -443,8 +443,10 @@ void NfcAdaptation::Initialize() {
       nfc_storage_path == "/data/vendor/nfc")
     nfc_storage_path.assign("//usr//local//etc");
   else {
-    std::cout << "FATAL ERROR: Unrecognized NFA_STORAGE path on Linux (got "
-              << nfc_storage_path << "), using //usr//local//etc" << std::endl;
+    LOG(WARNING) << StringPrintf(
+        "%s: Unrecognized NFA_STORAGE path '%s' on Linux, using "
+        "//usr//local//etc",
+        func, nfc_storage_path.c_str());
     nfc_storage_path.assign("//usr//local//etc");
   }
 #endif
