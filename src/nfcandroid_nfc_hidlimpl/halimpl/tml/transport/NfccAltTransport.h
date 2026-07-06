@@ -72,11 +72,21 @@ class NfccAltTransport : public NfccTransport {
   int iInterruptFd;
   int iFwDnldFd;
 #endif
+  /* GPIO layout, overridable at runtime via libnfc-nxp.conf (NXP_GPIO_CHIP,
+     NXP_PIN_INT, NXP_PIN_VEN, NXP_PIN_FWDNLD); defaults match the macros
+     above. */
+  int iPinInt = PIN_INT;
+  int iPinEnable = PIN_ENABLE;
+  int iPinFwDnld = PIN_FWDNLD;
+#ifdef USE_LIBGPIOD
+  char gpioChipName[64] = GPIO_CHIP_NAME;
+#endif
 
  public:
   ~NfccAltTransport();
 
  public:
+  void LoadGpioConfig();
   void gpio_set_ven(int value);
   void gpio_set_fwdl(int value);
   int verifyPin(int pin, int isoutput, int edge);

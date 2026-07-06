@@ -86,7 +86,23 @@ For debugging, set `NXPLOG_NCIHAL_LOGLEVEL`, `NXPLOG_FWDNLD_LOGLEVEL`, and `NXPL
 | VCC    | 3V3      | 1 or 17      |
 | GND    | GND      | 6, 9, …      |
 
-GPIO control uses `gpiochip0` with pins 23/24/25 (see `NfccAltTransport.h`).
+GPIO control defaults to `gpiochip0` with pins 23/24/25 (see `NfccAltTransport.h`).
+The chip and pins can be overridden in `/etc/nfc/libnfc-nxp.conf` without
+recompiling:
+
+```
+NXP_GPIO_CHIP="gpiochip0"
+NXP_PIN_INT=23
+NXP_PIN_VEN=24
+NXP_PIN_FWDNLD=25
+```
+
+> **Raspberry Pi 5:** depending on the kernel, the 40-pin header GPIOs may be
+> exposed on `gpiochip4` instead of `gpiochip0`. Check with `gpioinfo` and set
+> `NXP_GPIO_CHIP` accordingly.
+
+When using the ALT_SPI transport (`NXP_TRANSPORT=0x03`), set
+`NXP_NFC_DEV_NODE` to the SPI device (e.g. `"/dev/spidev0.0"`).
 
 ### 6. Run the demo
 

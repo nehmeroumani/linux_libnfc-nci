@@ -67,12 +67,21 @@ NFCSTATUS NfccAltSpiTransport::OpenAndConfigure(pphTmlNfc_Config_t pConfig,
   status_value = ConfigurePin();
   if (status_value != NFCSTATUS_SUCCESS)
     return NFCSTATUS_INVALID_DEVICE;
-  NXPLOG_TML_D("NFCHW - open SPI bus - %s\n", SPI_BUS);
+
+  // Use the device node from config (NXP_NFC_DEV_NODE) when provided, same
+  // as the ALT_I2C transport, so the SPI bus can be changed without
+  // recompiling. Fall back to the default.
+  const char* spi_bus = SPI_BUS;
+  if (pConfig != NULL && pConfig->pDevName != NULL &&
+      ((const char*)pConfig->pDevName)[0] != '\0') {
+    spi_bus = (const char*)pConfig->pDevName;
+  }
+  NXPLOG_TML_D("NFCHW - open SPI bus - %s\n", spi_bus);
 
   // SPI bus
-  Fd = open(SPI_BUS, O_RDWR | O_NOCTTY);
+  Fd = open(spi_bus, O_RDWR | O_NOCTTY);
   if (Fd < 0) {
-    NXPLOG_TML_E("Could not open SPI bus '%s' (%s)", SPI_BUS, strerror(errno));
+    NXPLOG_TML_E("Could not open SPI bus '%s' (%s)", spi_bus, strerror(errno));
     Close(NULL);
     return (NFCSTATUS_INVALID_DEVICE);
   }

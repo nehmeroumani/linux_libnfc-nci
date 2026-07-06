@@ -34,6 +34,7 @@
 #include <NfccI2cTransport.h>
 #include <NfccAltTransport.h>
 #include <phNfcStatus.h>
+#include <phNxpConfig.h>
 #include <phNxpLog.h>
 #include <string.h>
 #include "phNxpNciHal_utils.h"
@@ -77,15 +78,53 @@ NfccAltTransport::~NfccAltTransport() {
 #endif
 }
 
+/*******************************************************************************
+**
+** Function         LoadGpioConfig
+**
+** Description      Override the compile-time GPIO defaults (chip name and
+**                  IRQ/VEN/FWDNLD pin numbers) with values from
+**                  libnfc-nxp.conf when present.
+**
+** Parameters       none
+**
+** Returns          none
+**
+*******************************************************************************/
+void NfccAltTransport::LoadGpioConfig() {
+  unsigned long num = 0;
+  if (GetNxpNumValue(NAME_NXP_PIN_INT, &num, sizeof(num))) iPinInt = (int)num;
+  if (GetNxpNumValue(NAME_NXP_PIN_VEN, &num, sizeof(num)))
+    iPinEnable = (int)num;
+  if (GetNxpNumValue(NAME_NXP_PIN_FWDNLD, &num, sizeof(num)))
+    iPinFwDnld = (int)num;
+#ifdef USE_LIBGPIOD
+  char chip[sizeof(gpioChipName)] = {0};
+  if (GetNxpStrValue(NAME_NXP_GPIO_CHIP, chip, sizeof(chip)) &&
+      chip[0] != '\0') {
+    snprintf(gpioChipName, sizeof(gpioChipName), "%s", chip);
+  }
+  NXPLOG_TML_D("%s: chip=%s INT=%d VEN=%d FWDNLD=%d", __func__, gpioChipName,
+               iPinInt, iPinEnable, iPinFwDnld);
+#else
+  NXPLOG_TML_D("%s: INT=%d VEN=%d FWDNLD=%d", __func__, iPinInt, iPinEnable,
+               iPinFwDnld);
+#endif
+}
+
 #ifdef USE_LIBGPIOD
 int NfccAltTransport::InitGpioLines() {
   NXPLOG_TML_D("%s Enter", __func__);
-  char chip_path[64];
+  char chip_path[80];
 
-  snprintf(chip_path, sizeof(chip_path), "/dev/%s", GPIO_CHIP_NAME);
+  /* Accept either a bare chip name (appended to /dev/) or a full path. */
+  if (gpioChipName[0] == '/')
+    snprintf(chip_path, sizeof(chip_path), "%s", gpioChipName);
+  else
+    snprintf(chip_path, sizeof(chip_path), "/dev/%s", gpioChipName);
   gpio_chip = gpiod_chip_open(chip_path);
   if (!gpio_chip) {
-    NXPLOG_TML_E("%s: Failed to open GPIO chip %s (%s)", __func__, GPIO_CHIP_NAME,
+    NXPLOG_TML_E("%s: Failed to open GPIO chip %s (%s)", __func__, gpioChipName,
                  strerror(errno));
     return -1;
   }
@@ -94,9 +133,9 @@ int NfccAltTransport::InitGpioLines() {
   struct gpiod_line_settings *settings = nullptr;
   struct gpiod_line_config *line_cfg = nullptr;
   struct gpiod_request_config *req_cfg = nullptr;
-  const unsigned int ven_offset[] = {PIN_ENABLE};
-  const unsigned int fwdnld_offset[] = {PIN_FWDNLD};
-  const unsigned int irq_offset[] = {PIN_INT};
+  const unsigned int ven_offset[] = {(unsigned int)iPinEnable};
+  const unsigned int fwdnld_offset[] = {(unsigned int)iPinFwDnld};
+  const unsigned int irq_offset[] = {(unsigned int)iPinInt};
 
   req_cfg = gpiod_request_config_new();
   if (!req_cfg) {
@@ -116,11 +155,11 @@ int NfccAltTransport::InitGpioLines() {
 
   line_req_ven = gpiod_chip_request_lines(gpio_chip, req_cfg, line_cfg);
   if (!line_req_ven) {
-    NXPLOG_TML_E("%s: Failed to request VEN line (pin %d): %s", __func__, PIN_ENABLE,
+    NXPLOG_TML_E("%s: Failed to request VEN line (pin %d): %s", __func__, iPinEnable,
                  strerror(errno));
     goto error;
   }
-  NXPLOG_TML_D("%s: VEN line (pin %d) configured as output", __func__, PIN_ENABLE);
+  NXPLOG_TML_D("%s: VEN line (pin %d) configured as output", __func__, iPinEnable);
   gpiod_line_config_free(line_cfg);
   line_cfg = nullptr;
 
@@ -130,11 +169,11 @@ int NfccAltTransport::InitGpioLines() {
 
   line_req_fwdnld = gpiod_chip_request_lines(gpio_chip, req_cfg, line_cfg);
   if (!line_req_fwdnld) {
-    NXPLOG_TML_E("%s: Failed to request FWDNLD line (pin %d): %s", __func__, PIN_FWDNLD,
+    NXPLOG_TML_E("%s: Failed to request FWDNLD line (pin %d): %s", __func__, iPinFwDnld,
                  strerror(errno));
     goto error;
   }
-  NXPLOG_TML_D("%s: FWDNLD line (pin %d) configured as output", __func__, PIN_FWDNLD);
+  NXPLOG_TML_D("%s: FWDNLD line (pin %d) configured as output", __func__, iPinFwDnld);
   gpiod_line_config_free(line_cfg);
   gpiod_line_settings_free(settings);
   line_cfg = nullptr;
@@ -151,11 +190,11 @@ int NfccAltTransport::InitGpioLines() {
 
   line_req_irq = gpiod_chip_request_lines(gpio_chip, req_cfg, line_cfg);
   if (!line_req_irq) {
-    NXPLOG_TML_E("%s: Failed to request IRQ line (pin %d): %s", __func__, PIN_INT,
+    NXPLOG_TML_E("%s: Failed to request IRQ line (pin %d): %s", __func__, iPinInt,
                  strerror(errno));
     goto error;
   }
-  NXPLOG_TML_D("%s: IRQ line (pin %d) configured for rising edge", __func__, PIN_INT);
+  NXPLOG_TML_D("%s: IRQ line (pin %d) configured for rising edge", __func__, iPinInt);
 
   event_buffer = gpiod_edge_event_buffer_new(1);
   if (!event_buffer) {
@@ -167,41 +206,41 @@ int NfccAltTransport::InitGpioLines() {
   gpiod_line_settings_free(settings);
   gpiod_request_config_free(req_cfg);
 #else
-  line_ven = gpiod_chip_get_line(gpio_chip, PIN_ENABLE);
+  line_ven = gpiod_chip_get_line(gpio_chip, iPinEnable);
   if (!line_ven) {
-    NXPLOG_TML_E("%s: Failed to get VEN line (pin %d)", __func__, PIN_ENABLE);
+    NXPLOG_TML_E("%s: Failed to get VEN line (pin %d)", __func__, iPinEnable);
     goto error;
   }
   if (gpiod_line_request_output(line_ven, GPIO_CONSUMER_NAME, 0) < 0) {
-    NXPLOG_TML_E("%s: Failed to request VEN line (pin %d): %s", __func__, PIN_ENABLE,
+    NXPLOG_TML_E("%s: Failed to request VEN line (pin %d): %s", __func__, iPinEnable,
                  strerror(errno));
     goto error;
   }
-  NXPLOG_TML_D("%s: VEN line (pin %d) configured as output", __func__, PIN_ENABLE);
+  NXPLOG_TML_D("%s: VEN line (pin %d) configured as output", __func__, iPinEnable);
 
-  line_fwdnld = gpiod_chip_get_line(gpio_chip, PIN_FWDNLD);
+  line_fwdnld = gpiod_chip_get_line(gpio_chip, iPinFwDnld);
   if (!line_fwdnld) {
-    NXPLOG_TML_E("%s: Failed to get FWDNLD line (pin %d)", __func__, PIN_FWDNLD);
+    NXPLOG_TML_E("%s: Failed to get FWDNLD line (pin %d)", __func__, iPinFwDnld);
     goto error;
   }
   if (gpiod_line_request_output(line_fwdnld, GPIO_CONSUMER_NAME, 0) < 0) {
-    NXPLOG_TML_E("%s: Failed to request FWDNLD line (pin %d): %s", __func__, PIN_FWDNLD,
+    NXPLOG_TML_E("%s: Failed to request FWDNLD line (pin %d): %s", __func__, iPinFwDnld,
                  strerror(errno));
     goto error;
   }
-  NXPLOG_TML_D("%s: FWDNLD line (pin %d) configured as output", __func__, PIN_FWDNLD);
+  NXPLOG_TML_D("%s: FWDNLD line (pin %d) configured as output", __func__, iPinFwDnld);
 
-  line_irq = gpiod_chip_get_line(gpio_chip, PIN_INT);
+  line_irq = gpiod_chip_get_line(gpio_chip, iPinInt);
   if (!line_irq) {
-    NXPLOG_TML_E("%s: Failed to get IRQ line (pin %d)", __func__, PIN_INT);
+    NXPLOG_TML_E("%s: Failed to get IRQ line (pin %d)", __func__, iPinInt);
     goto error;
   }
   if (gpiod_line_request_rising_edge_events(line_irq, GPIO_CONSUMER_NAME) < 0) {
-    NXPLOG_TML_E("%s: Failed to request IRQ line (pin %d): %s", __func__, PIN_INT,
+    NXPLOG_TML_E("%s: Failed to request IRQ line (pin %d): %s", __func__, iPinInt,
                  strerror(errno));
     goto error;
   }
-  NXPLOG_TML_D("%s: IRQ line (pin %d) configured for rising edge", __func__, PIN_INT);
+  NXPLOG_TML_D("%s: IRQ line (pin %d) configured for rising edge", __func__, iPinInt);
 #endif
 
   NXPLOG_TML_D("%s: GPIO lines initialized successfully", __func__);
@@ -478,7 +517,7 @@ int NfccAltTransport::GetIrqState(void* pDevHandle) {
     return -1;
   }
 
-  enum gpiod_line_value value = gpiod_line_request_get_value(line_req_irq, PIN_INT);
+  enum gpiod_line_value value = gpiod_line_request_get_value(line_req_irq, iPinInt);
   if (value == GPIOD_LINE_VALUE_ERROR) {
     NXPLOG_TML_E("%s: Failed to read IRQ line (%s)", __func__, strerror(errno));
     return -1;
@@ -641,7 +680,7 @@ void NfccAltTransport::gpio_set_ven(int value) {
 #if defined(GPIOD_VERSION_MAJOR) && (GPIOD_VERSION_MAJOR >= 2)
   if (line_req_ven) {
     enum gpiod_line_value val = value ? GPIOD_LINE_VALUE_ACTIVE : GPIOD_LINE_VALUE_INACTIVE;
-    gpiod_line_request_set_value(line_req_ven, PIN_ENABLE, val);
+    gpiod_line_request_set_value(line_req_ven, iPinEnable, val);
     NXPLOG_TML_D("%s: VEN set to %d", __func__, value);
     usleep(10 * 1000);
   }
@@ -669,7 +708,7 @@ void NfccAltTransport::gpio_set_fwdl(int value) {
 #if defined(GPIOD_VERSION_MAJOR) && (GPIOD_VERSION_MAJOR >= 2)
   if (line_req_fwdnld) {
     enum gpiod_line_value val = value ? GPIOD_LINE_VALUE_ACTIVE : GPIOD_LINE_VALUE_INACTIVE;
-    gpiod_line_request_set_value(line_req_fwdnld, PIN_FWDNLD, val);
+    gpiod_line_request_set_value(line_req_fwdnld, iPinFwDnld, val);
     NXPLOG_TML_D("%s: FWDNLD set to %d", __func__, value);
     usleep(10 * 1000);
   }
@@ -704,7 +743,7 @@ void NfccAltTransport::wait4interrupt(void) {
 
   for (;;) {
     enum gpiod_line_value value =
-        gpiod_line_request_get_value(line_req_irq, PIN_INT);
+        gpiod_line_request_get_value(line_req_irq, iPinInt);
     if (value == GPIOD_LINE_VALUE_ERROR) {
       /* A read error must not be mistaken for "IRQ active". */
       NXPLOG_TML_E("%s: Failed to read IRQ line (%s)", __func__,
@@ -777,16 +816,17 @@ void NfccAltTransport::wait4interrupt(void) {
 
 int NfccAltTransport::ConfigurePin()
 {
+  LoadGpioConfig();
 #ifdef USE_LIBGPIOD
   if (InitGpioLines() < 0) {
     return NFCSTATUS_INVALID_DEVICE;
   }
 #else
-  iInterruptFd = verifyPin(PIN_INT, 0, EDGE_RISING);
+  iInterruptFd = verifyPin(iPinInt, 0, EDGE_RISING);
   if (iInterruptFd < 0) return (NFCSTATUS_INVALID_DEVICE);
-  iEnableFd = verifyPin(PIN_ENABLE, 1, EDGE_NONE);
+  iEnableFd = verifyPin(iPinEnable, 1, EDGE_NONE);
   if (iEnableFd < 0) return (NFCSTATUS_INVALID_DEVICE);
-  iFwDnldFd = verifyPin(PIN_FWDNLD, 1, EDGE_NONE);
+  iFwDnldFd = verifyPin(iPinFwDnld, 1, EDGE_NONE);
   if (iFwDnldFd < 0) return (NFCSTATUS_INVALID_DEVICE);
 #endif /* USE_LIBGPIOD */
   return NFCSTATUS_SUCCESS;

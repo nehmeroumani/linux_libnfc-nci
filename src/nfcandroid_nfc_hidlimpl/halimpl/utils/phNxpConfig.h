@@ -171,6 +171,12 @@ int isNxpConfigValid(unsigned long type);
 #define NAME_OFFHOST_ROUTE_ESE "OFFHOST_ROUTE_ESE"
 #define NAME_OFFHOST_ROUTE_UICC "OFFHOST_ROUTE_UICC"
 #define NAME_DEFAULT_ISODEP_ROUTE "DEFAULT_ISODEP_ROUTE"
+/* GPIO configuration for the ALT_I2C/ALT_SPI transports (optional; the
+   compile-time defaults in NfccAltTransport.h are used when absent) */
+#define NAME_NXP_GPIO_CHIP "NXP_GPIO_CHIP"
+#define NAME_NXP_PIN_INT "NXP_PIN_INT"
+#define NAME_NXP_PIN_VEN "NXP_PIN_VEN"
+#define NAME_NXP_PIN_FWDNLD "NXP_PIN_FWDNLD"
 #if(NXP_EXTNS == TRUE)
 #define NAME_NXP_TRANSPORT "NXP_TRANSPORT"
 #define NAME_NXP_AGC_DEBUG_ENABLE "NXP_AGC_DEBUG_ENABLE"
