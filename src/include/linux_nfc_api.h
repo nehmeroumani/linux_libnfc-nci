@@ -833,8 +833,9 @@ extern int nfcLlcp_ConnLessSendMessage(unsigned char* msg, unsigned int length);
 
 /**
 * \brief Receive a LLCP message from remote LLCP server.
-* \param msg:  LLCP message.
-* \param length:  LLCP message length.
+* \param msg:  buffer receiving the LLCP message.
+* \param length:  in: capacity of msg in bytes; out: received message length.
+*                 A message larger than the buffer is truncated to fit.
 * \return 0 if success, otherwise failed.
 */
 extern int nfcLlcp_ConnLessReceiveMessage(unsigned char* msg, unsigned int *length);

@@ -491,8 +491,18 @@ void nativeNfcLlcp_ConnLessDeregisterClientCallback()
         }
         else
         {
-            memcpy(msg,bLlcpReadData, dwLlcpReadLength);
-            *length = dwLlcpReadLength;
+            /* *length carries the caller's buffer capacity on input and the
+               copied message length on output; clamp so a message larger
+               than the buffer cannot overflow it. */
+            UINT32 copyLength = dwLlcpReadLength;
+            if (*length < copyLength)
+            {
+                NXPLOG_API_E ("%s: message %u exceeds buffer %u, truncating",
+                              __FUNCTION__, dwLlcpReadLength, *length);
+                copyLength = *length;
+            }
+            memcpy(msg, bLlcpReadData, copyLength);
+            *length = copyLength;
             NXPLOG_API_D ("%s: exit\n", __FUNCTION__);
             bServerReadState = FALSE;
             bClientReadState = FALSE;

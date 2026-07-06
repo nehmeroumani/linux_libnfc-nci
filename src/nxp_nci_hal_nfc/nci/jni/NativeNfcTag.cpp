@@ -370,7 +370,9 @@ static jbyteArray nativeNfcTag_doRead(JNIEnv* e, jobject) {
       buf = e->NewByteArray(sReadDataLen);
       e->SetByteArrayRegion(buf, 0, sReadDataLen, (jbyte*)sReadData);
 #else
-      if (ndefBufferLength <= sReadDataLen) {
+      /* Never copy more than the caller's buffer can hold; the full message
+         length is still reported via the return value. */
+      if (ndefBufferLength > sReadDataLen) {
         ndefBufferLength = sReadDataLen;
       }
       memcpy(ndefBuffer, sReadData, ndefBufferLength);
