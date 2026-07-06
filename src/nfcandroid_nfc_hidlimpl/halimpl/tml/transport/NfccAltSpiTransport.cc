@@ -276,9 +276,20 @@ int NfccAltSpiTransport::Read(void* pDevHandle, uint8_t* pBuffer,
       totalBtyesToRead =
           pBuffer[NORMAL_MODE_LEN_OFFSET] + NORMAL_MODE_HEADER_LEN;
     }
-    if (totalBtyesToRead > (uint16_t)nNbBytesToRead) {
+    if ((int)totalBtyesToRead > nNbBytesToRead) {
       NXPLOG_TML_E("%s packet length %u exceeds buffer %d", __func__,
                    totalBtyesToRead, nNbBytesToRead);
+      /* Drain the rest of the oversized packet so the next read starts at
+         a packet boundary instead of mid-payload. */
+      uint8_t drain[512];
+      wait4interrupt();
+      ret_Read = SpiRead((intptr_t)pDevHandle, drain,
+                         (size_t)(totalBtyesToRead - numRead) > sizeof(drain)
+                             ? (int)sizeof(drain)
+                             : totalBtyesToRead - numRead);
+      if (ret_Read < 0) {
+        NXPLOG_TML_E("%s drain failed errno : %x", __func__, errno);
+      }
       return -1;
     }
     wait4interrupt();
@@ -404,9 +415,14 @@ void NfccAltSpiTransport::Close(void* pDevHandle) {
 #ifdef USE_LIBGPIOD
   ReleaseGpioLines();
 #else
+  /* Reset the fds after closing so the destructor does not close them a
+     second time (the fd numbers may have been reused by then). */
   if (iEnableFd) close(iEnableFd);
+  iEnableFd = 0;
   if (iInterruptFd) close(iInterruptFd);
+  iInterruptFd = 0;
   if (iFwDnldFd) close(iFwDnldFd);
+  iFwDnldFd = 0;
 #endif
   NXPLOG_TML_D("%s exit", __func__);
   return;
