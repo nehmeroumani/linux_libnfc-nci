@@ -479,6 +479,10 @@ int NfccAltTransport::GetIrqState(void* pDevHandle) {
   }
 
   enum gpiod_line_value value = gpiod_line_request_get_value(line_req_irq, PIN_INT);
+  if (value == GPIOD_LINE_VALUE_ERROR) {
+    NXPLOG_TML_E("%s: Failed to read IRQ line (%s)", __func__, strerror(errno));
+    return -1;
+  }
   ret = (value == GPIOD_LINE_VALUE_ACTIVE) ? 1 : 0;
 #else
   if (!line_irq) {
@@ -698,7 +702,16 @@ void NfccAltTransport::wait4interrupt(void) {
     return;
   }
 
-  while (gpiod_line_request_get_value(line_req_irq, PIN_INT) == GPIOD_LINE_VALUE_INACTIVE) {
+  for (;;) {
+    enum gpiod_line_value value =
+        gpiod_line_request_get_value(line_req_irq, PIN_INT);
+    if (value == GPIOD_LINE_VALUE_ERROR) {
+      /* A read error must not be mistaken for "IRQ active". */
+      NXPLOG_TML_E("%s: Failed to read IRQ line (%s)", __func__,
+                   strerror(errno));
+      break;
+    }
+    if (value == GPIOD_LINE_VALUE_ACTIVE) break;
     int ret = gpiod_line_request_wait_edge_events(line_req_irq, 1000000000LL);
     if (ret < 0) {
       NXPLOG_TML_E("%s: wait_edge_events failed (%s)", __func__, strerror(errno));
@@ -719,7 +732,15 @@ void NfccAltTransport::wait4interrupt(void) {
     return;
   }
 
-  while (gpiod_line_get_value(line_irq) == 0) {
+  for (;;) {
+    int value = gpiod_line_get_value(line_irq);
+    if (value < 0) {
+      /* A read error must not be mistaken for "IRQ active". */
+      NXPLOG_TML_E("%s: Failed to read IRQ line (%s)", __func__,
+                   strerror(errno));
+      break;
+    }
+    if (value > 0) break;
     struct timespec timeout;
     timeout.tv_sec = 1;
     timeout.tv_nsec = 0;
